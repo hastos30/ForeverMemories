@@ -247,7 +247,7 @@ UI.builders.history = function(parent)
         { "shots", "Interface\\Icons\\INV_Misc_Spyglass_03", L.STAT_TOTAL, L.TIP_STAT_TOTAL },
         { "steps", "Interface\\Icons\\Ability_Rogue_Sprint", L.TOTAL_STEPS, L.STEPS_NOTE },
         { "zones", "Interface\\Icons\\INV_Misc_Map_01", L.STAT_ZONES_TOTAL, L.TIP_STAT_ZONES_TOTAL },
-        { "days", "Interface\\Icons\\INV_Misc_Note_01", L.STAT_DAYS_PLAYED, L.TIP_STAT_DAYS_PLAYED },
+        { "playtime", "Interface\\Icons\\INV_Misc_PocketWatch_01", L.STAT_PLAYTIME_TOTAL, L.TIP_STAT_PLAYTIME_TOTAL },
     })
 
     local order = { "shots", "steps", "zones" }
@@ -284,7 +284,7 @@ UI.builders.history = function(parent)
             refreshHeader()
             cards.shots.value:SetText(ns.Num(ns.History.Stats().total))
             cards.zones.value:SetText(ns.Num(ns.Locations.Total()))
-            cards.days.value:SetText(ns.Num(ns.Activity.DaysPlayed()))
+            cards.playtime.value:SetText(UI.FormatDuration(ns.Activity.Total()))
             refreshSteps()
             select(current)
         end,

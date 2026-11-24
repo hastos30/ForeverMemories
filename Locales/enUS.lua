@@ -73,10 +73,10 @@ ns.locales.enUS = {
     -- History: Lifetime statistics
     LIFETIME_STATS = "Lifetime statistics",
     STAT_TOTAL = "Total screenshots", TOTAL_STEPS = "Total steps",
-    STAT_ZONES_TOTAL = "Locations visited", STAT_DAYS_PLAYED = "Days played",
+    STAT_ZONES_TOTAL = "Locations visited", STAT_PLAYTIME_TOTAL = "Total playtime",
     TIP_STAT_TOTAL = "Screenshots this character has saved since the addon was installed.",
     TIP_STAT_ZONES_TOTAL = "Different zones this character has ever visited (since the addon was installed).",
-    TIP_STAT_DAYS_PLAYED = "Calendar days on which this character played, walked, took screenshots or visited zones.",
+    TIP_STAT_PLAYTIME_TOTAL = "All active play of this character: AFK, loading screens and time outside the game are not counted. Counted since version 0.8.0.",
     SUB_SHOTS = "Screenshots", SUB_STEPS = "Steps", SUB_ZONES = "Locations",
     NO_SHOTS_YET = "This character has no screenshots yet",
     SCREENSHOTS_FOLDER_NOTE = "Screenshots are saved in the game's Screenshots folder.",

@@ -81,9 +81,9 @@ function commands.debug()
         math.floor(elapsed / 60), math.floor(elapsed % 60), due / 60, passiveState,
         tostring(ns.API.IsAFK())))
     local playtime = ns.character.playtime
-    Print(string.format("Playtime: today %ds, total %ds, now %s; zones today %d, visited %d, days played %d",
+    Print(string.format("Playtime: today %ds, total %ds, now %s; zones today %d, visited %d",
         ns.Activity.Today(), math.floor(playtime.total), ns.Activity.BlockReason() or "active",
-        ns.Locations.Today(), ns.Locations.Total(), ns.Activity.DaysPlayed()))
+        ns.Locations.Today(), ns.Locations.Total()))
     local character = ns.character
     Print(string.format("Character: %s, GUID %s%s, guild %s", ns.characterKey, tostring(character.guid),
         character.guidChanged and " (changed!)" or "", tostring(character.guild)))

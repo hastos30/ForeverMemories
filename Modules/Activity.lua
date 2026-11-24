@@ -91,28 +91,11 @@ function Activity.Today()
     return Activity.OnDay(ns.Util.DayKey(API.Time()))
 end
 
--- Calendar days on which this character played: any playtime, steps,
--- screenshots or visited zones (days before v0.8.0 come from steps and
--- screenshots, playtime was not recorded then).
-function Activity.DaysPlayed()
-    local character = ns.character
-    if not character then
-        return 0
-    end
-    local seen, count = {}, 0
-    local function add(map)
-        for day, value in pairs(map or {}) do
-            if not seen[day] and (type(value) == "table" or value > 0) then
-                seen[day] = true
-                count = count + 1
-            end
-        end
-    end
-    add(character.playtime and character.playtime.days)
-    add(character.steps and character.steps.days)
-    add(character.shotsByDay)
-    add(character.locations and character.locations.days)
-    return count
+-- Whole seconds of play of the current character in total (since v0.8.0,
+-- playtime was not recorded before).
+function Activity.Total()
+    local playtime = data()
+    return playtime and math.floor(playtime.total) or 0
 end
 
 -- A loading screen breaks the chain: its time is not counted.

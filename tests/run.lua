@@ -886,15 +886,12 @@ test("locations: old visited zones count, a new day re-records the zone you stan
     eq(ns.Locations.Today(), 1, "today without moving")
 end)
 
-test("history: days played from playtime, steps, screenshots and zones", function()
-    local _, ns = start()
-    local c = ns.character
-    c.steps.days["2026-11-01"] = 10
-    c.steps.days["2026-11-02"] = 0
-    c.shotsByDay["2026-11-01"] = 1
-    c.shotsByDay["2026-11-03"] = 2
-    c.playtime.days["2026-11-04"] = 30
-    eq(ns.Activity.DaysPlayed(), 4, "11-01, 11-03, 11-04 and today (login zone), 11-02 is empty")
+test("history: total playtime sums every day of the character", function()
+    local env, ns = start()
+    ns.character.playtime.days["2026-11-01"] = 3 * 3600
+    ns.character.playtime.total = 3 * 3600
+    env.advance(10 * MIN)
+    near(ns.Activity.Total(), 3 * 3600 + 10 * MIN, 1.01, "old days + today")
 end)
 
 test("data from 0.7.0 is kept; new fields are added without a migration", function()
@@ -1055,6 +1052,7 @@ end)
 test("history: lifetime dashboard stays visible over Screenshots, Steps and Locations", function()
     local env, ns = start()
     ns.character.steps.total, ns.character.steps.days[ns.Util.DayKey(time())] = 358724, 12458
+    ns.character.playtime.total = 3 * 3600 + 42 * 60
     env.mapID, env.zone = 52, "Westfall"
     env.fire("ZONE_CHANGED_NEW_AREA")
     env.advance(5)
@@ -1062,10 +1060,11 @@ test("history: lifetime dashboard stays visible over Screenshots, Steps and Loca
     eq(hasText(env, "Lifetime statistics"), true, "caption")
     for _, sub in ipairs({ "Screenshots", "Steps", "Locations" }) do
         findButton(env, sub):Click()
-        for _, label in ipairs({ "Total screenshots", "Total steps", "Locations visited", "Days played" }) do
+        for _, label in ipairs({ "Total screenshots", "Total steps", "Locations visited", "Total playtime" }) do
             eq(hasText(env, label), true, sub .. ": card " .. label)
         end
         eq(hasText(env, "358,724"), true, sub .. ": total steps value")
+        eq(hasText(env, "3h 42m"), true, sub .. ": total playtime value")
     end
     eq(hasText(env, "Westfall"), true, "locations list")
     eq(hasText(env, "First visit"), true, "first visit mark")
