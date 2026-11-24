@@ -2,6 +2,7 @@
 -- Small building blocks for the window: text, buttons, checkboxes,
 -- "- value +" steppers and dropdown lists.
 -- Every input widget has :Refresh() that re-reads its value.
+-- Any widget can get a mouse-over explanation with W.Tooltip().
 -- Only long-standing templates are used (UIPanelButtonTemplate,
 -- UICheckButtonTemplate, InputBoxTemplate, BackdropTemplate).
 local _, ns = ...
@@ -33,6 +34,81 @@ function W.Backdrop(frame, color, alpha)
     frame:SetBackdropBorderColor(g[1], g[2], g[3], 0.8)
 end
 
+---------------------------------------------------------------------------
+-- Tooltips: a gold title and a white explanation on mouse over.
+-- W.Tooltip(widget, text, title)
+--   text  - string, or a function returning one (called on every mouse
+--           over, so it can describe the current state);
+--   title - string or function, optional. Checkboxes, steppers and
+--           dropdowns already use their label as the title.
+-- A widget made of several frames (a stepper: row, "-" and "+") shows the
+-- same tooltip over each of them.
+-- Only GameTooltip SetOwner/SetText/AddLine/Show/Hide are used: the same
+-- calls as the minimap button tooltip.
+---------------------------------------------------------------------------
+-- Weak tables (__mode = "k"): they never keep a frame alive by themselves.
+local tipInfo = setmetatable({}, { __mode = "k" }) -- frame -> { text, title, targets }
+local tipHooked = setmetatable({}, { __mode = "k" }) -- frame -> true
+
+local function resolve(value)
+    if type(value) == "function" then
+        return value()
+    end
+    return value
+end
+
+local function showTooltip(self)
+    local info = tipInfo[self]
+    local text = info and resolve(info.text)
+    if type(text) ~= "string" or text == "" then
+        return
+    end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    local title = resolve(info.title)
+    if type(title) == "string" and title ~= "" then
+        local g = W.COLORS.gold
+        GameTooltip:SetText(title, g[1], g[2], g[3])
+        GameTooltip:AddLine(text, 1, 1, 1, true) -- true = wrap long text
+    else
+        GameTooltip:SetText(text, 1, 1, 1, 1, true)
+    end
+    GameTooltip:Show()
+end
+
+local function hideTooltip()
+    GameTooltip:Hide()
+end
+
+-- Adds fn to a script without replacing what a template already does.
+local function addScript(frame, script, fn)
+    if frame:GetScript(script) then
+        frame:HookScript(script, fn)
+    else
+        frame:SetScript(script, fn)
+    end
+end
+
+-- Used by the widgets below: default title and the frames that react.
+local function tipDefaults(widget, title, targets)
+    tipInfo[widget] = { title = title, targets = targets or { widget } }
+end
+
+function W.Tooltip(widget, text, title)
+    local info = tipInfo[widget] or { targets = { widget } }
+    info.text = text
+    info.title = title or info.title
+    for _, target in ipairs(info.targets) do
+        tipInfo[target] = info
+        if not tipHooked[target] then
+            tipHooked[target] = true
+            target:EnableMouse(true) -- a plain frame gets no OnEnter without it
+            addScript(target, "OnEnter", showTooltip)
+            addScript(target, "OnLeave", hideTooltip)
+        end
+    end
+    return widget
+end
+
 function W.Text(parent, text, template, color)
     local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontHighlight")
     fs:SetJustifyH("LEFT")
@@ -57,6 +133,10 @@ function W.Check(parent, label, get, set)
     check:SetSize(24, 24)
     check.label = W.Text(check, label)
     check.label:SetPoint("LEFT", check, "RIGHT", 2, 0)
+    -- The label is part of the checkbox: hover shows the tooltip,
+    -- a click toggles it (as in the game's own options).
+    check:SetHitRectInsets(0, -((check.label:GetStringWidth() or 0) + 4), 0, 0)
+    tipDefaults(check, label)
     check:SetScript("OnClick", function(self)
         ns.SafeCall("check", set, self:GetChecked() and true or false)
         if parent.Refresh then parent:Refresh() end
@@ -90,6 +170,7 @@ function W.Stepper(parent, label, spec, get, set, suffix)
     row.value:SetJustifyH("CENTER")
     local plus = W.Button(row, "+", 24)
     plus:SetPoint("LEFT", row.value, "RIGHT", 4, 0)
+    tipDefaults(row, label, { row, minus, plus })
 
     local function change(direction)
         local value = (get() or spec.min) + direction * spec.step
@@ -235,6 +316,7 @@ function W.Dropdown(parent, label, options, get, set, width)
     end)
     button:SetPoint("LEFT", row, "LEFT", 172, 0)
     row.button = button
+    tipDefaults(row, label, { row, button })
 
     function button:Choose(value)
         if value ~= get() then

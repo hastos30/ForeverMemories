@@ -507,6 +507,70 @@ test("first run, minimap, manual panel, settings and journal actions", function(
     env.advance(2)
 end)
 
+-- Frames that need no tooltip of ours: the game's close button, the
+-- invisible click catcher and the rows of the open dropdown list.
+local function needsTooltip(frame)
+    if frame.kind ~= "Button" and frame.kind ~= "CheckButton" and frame.kind ~= "EditBox" then
+        return false
+    end
+    if frame.template == "UIPanelCloseButton" then
+        return false
+    end
+    local list = _G.ForeverMemoriesDropdownList
+    if frame.parent == UIParent and not frame.template and frame.kind == "Button" then
+        return false -- click catcher of the dropdown list
+    end
+    return not (list and frame.parent == list)
+end
+
+test("tooltips: every control explains itself on mouse over", function()
+    local env, ns = start()
+    env.advance(6) -- first run window
+    ns.Engine.SubmitManual()
+    env.advance(2)
+    ns.db.settings.advanced = true
+    for _, tab in ipairs(ns.UI.TABS) do
+        ns.UI.Open(tab)
+    end
+    ns.ManualPanel.Toggle()
+    local checked = 0
+    for _, frame in ipairs(env.frames) do
+        if needsTooltip(frame) then
+            local onEnter = frame.scripts.OnEnter
+            eq(type(onEnter), "function", "OnEnter on " .. frame.kind .. " '" .. tostring(frame.text) .. "'")
+            env.tooltip = {}
+            onEnter(frame)
+            local text = table.concat(env.tooltip, "\n")
+            eq(#text > 0, true, "tooltip text on " .. frame.kind .. " '" .. tostring(frame.text) .. "'")
+            eq(text:find("TIP_", 1, true), nil, "no raw key in tooltip: " .. text)
+            checked = checked + 1
+        end
+    end
+    eq(checked > 100, true, "many controls checked (" .. checked .. ")")
+    for _, entry in ipairs(ns.Logger.Recent(200)) do
+        eq(entry.level ~= "ERROR", true, "no errors: " .. entry.msg)
+    end
+end)
+
+test("tooltips: title is the label, unavailable events say why", function()
+    local env, ns = start({ locale = "ruRU" })
+    ns.UI.Open("events")
+    local rare
+    for _, frame in ipairs(env.frames) do
+        if frame.kind == "CheckButton" and frame.scripts.OnEnter then
+            env.tooltip = {}
+            frame.scripts.OnEnter(frame)
+            if env.tooltip[1] == ns.L.TRIGGER_RARE then
+                rare = table.concat(env.tooltip, "\n")
+            end
+        end
+    end
+    eq(rare ~= nil, true, "RARE row tooltip")
+    eq(rare:find(ns.L.TIP_TRIGGER_RARE, 1, true) ~= nil, true, "explains the event")
+    eq(rare:find(ns.L.REASON_NO_COMBAT_LOG, 1, true) ~= nil, true, "explains why unavailable")
+    eq(rare:find("журнал боя", 1, true) ~= nil, true, "in Russian")
+end)
+
 -- Finds a shown button by its text (dropdown buttons show the current option).
 local function findButton(env, text)
     for _, frame in ipairs(env.frames) do
@@ -607,11 +671,15 @@ test("every L.KEY used in code exists in enUS", function()
         end
     end
     files:close()
-    local families = { TRIGGER_ = {}, TAB_ = ns.UI.TABS, STATUS_ = { "success", "partial", "unconfirmed", "failed", "skipped" },
+    local families = { TRIGGER_ = {}, TIP_TRIGGER_ = {}, TAB_ = ns.UI.TABS, TIP_TAB_ = ns.UI.TABS,
+                       TIP_PRESET_ = ns.Profiles.PRESET_ORDER, STATUS_ = { "success", "partial", "unconfirmed", "failed", "skipped" },
                        MODE_ = { "normal", "clean", "dual" }, PRESET_ = ns.Profiles.PRESET_ORDER,
                        REASON_ = { "disabled", "paused", "not_first", "cooldown", "unknown_trigger", "limit_session",
                                    "limit_hour", "limit_journey", "queue_full", "expired", "loading", "timeout", "not_loaded" } }
-    for _, t in ipairs(ns.Registry.TRIGGERS) do table.insert(families.TRIGGER_, t.id) end
+    for _, t in ipairs(ns.Registry.TRIGGERS) do
+        table.insert(families.TRIGGER_, t.id)
+        table.insert(families.TIP_TRIGGER_, t.id)
+    end
     for prefix, list in pairs(families) do
         for _, suffix in ipairs(list) do
             eq(ns.locales.enUS[prefix .. suffix] ~= nil, true, prefix .. suffix)

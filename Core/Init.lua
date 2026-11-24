@@ -3,7 +3,7 @@
 local addonName, ns = ...
 
 ns.name = addonName
-ns.version = "0.4.1-beta"
+ns.version = "0.4.2-beta"
 
 -- Our own frames (window, panels). They are hidden while a screenshot is
 -- taken so they never appear in a memory.

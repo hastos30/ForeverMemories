@@ -27,6 +27,17 @@ UI.builders.events = function(parent)
         function() return ns.db.settings.advanced end,
         function(value) ns.db.settings.advanced = value end)
     advanced:SetPoint("TOPLEFT", 12, -10)
+    W.Tooltip(advanced, L.TIP_ADVANCED_MODE)
+
+    -- What the trigger does, why it is unavailable (if so), how the row works.
+    local function triggerTip(id)
+        local text = L["TIP_TRIGGER_" .. id]
+        local available, reason = ns.Registry.Status(id)
+        if not available then
+            text = text .. "\n\n|cffff5555" .. L.UNAVAILABLE .. ":|r " .. reasonText(reason)
+        end
+        return text .. "\n\n|cff8c857a" .. L.TIP_TRIGGER_ROW .. "|r"
+    end
 
     local listTop = 40
     for i, trigger in ipairs(ns.Registry.TRIGGERS) do
@@ -40,6 +51,11 @@ UI.builders.events = function(parent)
             function(value) ns.Profiles.SetRule(id, "enabled", value) end)
         row.check:SetPoint("LEFT")
         row.check:SetSize(20, 20)
+        -- Here a click on the name selects the row, so only the box toggles.
+        row.check:SetHitRectInsets(0, 0, 0, 0)
+        local function tip() return triggerTip(id) end
+        W.Tooltip(row, tip, L["TRIGGER_" .. id])
+        W.Tooltip(row.check, tip, L["TRIGGER_" .. id])
         row.status = W.Text(row, "", "GameFontDisableSmall", W.COLORS.muted)
         row.status:SetPoint("LEFT", row, "LEFT", 190, 0)
         row.status:SetWidth(110)
@@ -64,33 +80,34 @@ UI.builders.events = function(parent)
 
     local column = W.Column(editor, 0, 56)
     local fields = {}
-    local function stepper(field, label, suffix)
+    local function stepper(field, label, tip, suffix)
         local spec = ns.Registry.FIELDS[field]
-        fields[field] = column:Add(W.Stepper(editor, label, spec,
+        fields[field] = column:Add(W.Tooltip(W.Stepper(editor, label, spec,
             function() return rule(selected)[field] end,
-            function(value) ns.Profiles.SetRule(selected, field, value) end, suffix))
+            function(value) ns.Profiles.SetRule(selected, field, value) end, suffix), tip))
     end
-    stepper("delay", L.FIELD_DELAY, " s")
-    stepper("frames", L.FIELD_FRAMES)
-    stepper("interval", L.FIELD_INTERVAL, " s")
+    stepper("delay", L.FIELD_DELAY, L.TIP_FIELD_DELAY, " s")
+    stepper("frames", L.FIELD_FRAMES, L.TIP_FIELD_FRAMES)
+    stepper("interval", L.FIELD_INTERVAL, L.TIP_FIELD_INTERVAL, " s")
     local modeOptions = {
         { value = "normal", text = L.MODE_normal },
         { value = "clean", text = L.MODE_clean },
         { value = "dual", text = L.MODE_dual },
     }
-    fields.mode = column:Add(W.Dropdown(editor, L.FIELD_MODE, modeOptions,
+    fields.mode = column:Add(W.Tooltip(W.Dropdown(editor, L.FIELD_MODE, modeOptions,
         function() return rule(selected).mode end,
-        function(value) ns.Profiles.SetRule(selected, "mode", value) end))
-    stepper("priority", L.FIELD_PRIORITY)
-    stepper("cooldown", L.FIELD_COOLDOWN, " s")
-    fields.firstOnly = column:Add(W.Check(editor, L.FIELD_FIRST_ONLY,
+        function(value) ns.Profiles.SetRule(selected, "mode", value) end), L.TIP_FIELD_MODE))
+    stepper("priority", L.FIELD_PRIORITY, L.TIP_FIELD_PRIORITY)
+    stepper("cooldown", L.FIELD_COOLDOWN, L.TIP_FIELD_COOLDOWN, " s")
+    fields.firstOnly = column:Add(W.Tooltip(W.Check(editor, L.FIELD_FIRST_ONLY,
         function() return rule(selected).firstOnly end,
-        function(value) ns.Profiles.SetRule(selected, "firstOnly", value) end))
+        function(value) ns.Profiles.SetRule(selected, "firstOnly", value) end), L.TIP_FIELD_FIRST_ONLY))
 
     -- Quest IDs for the QUEST trigger (per character).
     column:Space(8)
     local questLabel = column:Add(W.Text(editor, L.QUEST_IDS, "GameFontHighlightSmall"), 18)
     local questBox = column:Add(W.Input(editor, 260), 24, 6)
+    W.Tooltip(questBox, L.TIP_QUEST_IDS, L.TRIGGER_QUEST)
     questBox:SetScript("OnEnterPressed", function(self)
         local quests = {}
         for id in string.gmatch(self:GetText() or "", "%d+") do

@@ -15,12 +15,14 @@ UI.builders.journal = function(parent)
     local selectedId
 
     -- Filters: dropdown lists. They live only while the window is open.
-    local function filterDropdown(x, y, options, key)
+    local function filterDropdown(x, y, options, key, tip)
         local row = W.Dropdown(parent, "", options,
             function() return filter[key] end,
             function(value) filter[key] = value; page = 1 end, 140)
         row:SetPoint("TOPLEFT", x, y)
+        row:SetWidth(140) -- no label: the row must not cover the next filter
         row.label:SetWidth(1)
+        W.Tooltip(row, tip .. "\n\n|cff8c857a" .. L.TIP_FILTER_RESET .. "|r")
         row.button:ClearAllPoints()
         row.button:SetPoint("LEFT", row, "LEFT", 0, 0)
         return row
@@ -42,10 +44,10 @@ UI.builders.journal = function(parent)
         { value = "fav", text = L.FAVORITES },
     }
     local filters = {
-        filterDropdown(12, -10, charOptions, "char"),
-        filterDropdown(158, -10, eventOptions, "event"),
-        filterDropdown(304, -10, statusOptions, "status"),
-        filterDropdown(450, -10, periodOptions, "period"),
+        filterDropdown(12, -10, charOptions, "char", L.TIP_FILTER_CHAR),
+        filterDropdown(158, -10, eventOptions, "event", L.TIP_FILTER_EVENT),
+        filterDropdown(304, -10, statusOptions, "status", L.TIP_FILTER_STATUS),
+        filterDropdown(450, -10, periodOptions, "period", L.TIP_FILTER_PERIOD),
     }
 
     -- Scroll area with up to 50 rows.
@@ -75,15 +77,18 @@ UI.builders.journal = function(parent)
             selectedId = self.entryId
             parent:Refresh()
         end)
+        W.Tooltip(row, L.TIP_JOURNAL_ROW)
         rows[i] = row
     end
 
     local prev = W.Button(parent, "<", 30, function() page = page - 1; parent:Refresh() end)
     prev:SetPoint("TOPLEFT", 12, -298)
+    W.Tooltip(prev, L.TIP_PREV_PAGE)
     local pageText = W.Text(parent, "")
     pageText:SetPoint("LEFT", prev, "RIGHT", 8, 0)
     local nextButton = W.Button(parent, ">", 30, function() page = page + 1; parent:Refresh() end)
     nextButton:SetPoint("LEFT", prev, "RIGHT", 140, 0)
+    W.Tooltip(nextButton, L.TIP_NEXT_PAGE)
 
     -- Details of the selected record.
     local details = W.Text(parent, "", "GameFontHighlightSmall")
@@ -91,17 +96,20 @@ UI.builders.journal = function(parent)
     details:SetWidth(580)
     local noteBox = W.Input(parent, 300)
     noteBox:SetPoint("TOPLEFT", 18, -388)
+    W.Tooltip(noteBox, L.TIP_NOTE)
     local saveNote = W.Button(parent, L.SAVE_NOTE, 110, function()
         ns.Journal.Update(selectedId, { note = noteBox:GetText() })
         noteBox:ClearFocus()
     end)
     saveNote:SetPoint("LEFT", noteBox, "RIGHT", 8, 0)
+    W.Tooltip(saveNote, L.TIP_SAVE_NOTE, L.SAVE_NOTE)
     noteBox:SetScript("OnEnterPressed", function() saveNote:Click() end)
     local favButton = W.Button(parent, "", 110, function()
         local entry = ns.Journal.Get(selectedId)
         if entry then ns.Journal.Update(selectedId, { fav = not entry.fav }) end
     end)
     favButton:SetPoint("LEFT", saveNote, "RIGHT", 8, 0)
+    W.Tooltip(favButton, L.TIP_FAVORITE, L.FAVORITE .. " / " .. L.UNFAVORITE)
     local deleteButton = W.Button(parent, L.DELETE, 110, function()
         UI.Confirm(L.CONFIRM_DELETE_ENTRY, function()
             ns.Journal.Delete(selectedId)
@@ -109,6 +117,7 @@ UI.builders.journal = function(parent)
         end)
     end)
     deleteButton:SetPoint("TOPLEFT", noteBox, "BOTTOMLEFT", -6, -6)
+    W.Tooltip(deleteButton, L.TIP_DELETE_ENTRY, L.DELETE)
 
     local function query()
         local q = { char = filter.char, event = filter.event, status = filter.status }

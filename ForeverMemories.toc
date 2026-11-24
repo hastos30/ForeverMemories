@@ -2,7 +2,7 @@
 ## Title: ForeverMemories
 ## Notes: Automatic screenshots of important moments in World of Warcraft: Forever.
 ## Notes-ruRU: Автоматические скриншоты важных моментов в World of Warcraft: Forever.
-## Version: 0.4.1-beta
+## Version: 0.4.2-beta
 ## SavedVariables: ForeverMemoriesDB
 ## IconTexture: Interface\Icons\INV_Misc_Spyglass_03
 ## AddonCompartmentFunc: ForeverMemories_OnAddonCompartmentClick

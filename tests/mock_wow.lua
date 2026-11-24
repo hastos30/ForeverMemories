@@ -133,11 +133,19 @@ function Mock.new(options)
     }
     _G.C_EventUtils = { IsEventValid = function(event) return not env.unknownEvents[event] end }
 
-    _G.CreateFrame = function(kind, name) return newFrame(env, kind, name) end
+    _G.CreateFrame = function(kind, name, parent, template)
+        local frame = newFrame(env, kind, name)
+        frame.parent, frame.template = parent, template
+        return frame
+    end
     _G.UIParent = newFrame(env, "Frame", "UIParent")
     UIParent.width, UIParent.height = 1920, 1080
     _G.Minimap = newFrame(env, "Frame", "Minimap")
     _G.GameTooltip = newFrame(env, "GameTooltip", "GameTooltip")
+    -- Remembers the lines of the last tooltip: env.tooltip = { title, line, ... }
+    env.tooltip = {}
+    GameTooltip.SetText = function(_, text) env.tooltip = { text } end
+    GameTooltip.AddLine = function(_, text) env.tooltip[#env.tooltip + 1] = text end
 
     function env.fire(event, ...)
         for _, frame in ipairs(env.frames) do

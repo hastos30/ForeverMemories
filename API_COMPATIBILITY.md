@@ -100,3 +100,4 @@
 | Options | `Settings.RegisterCanvasLayoutCategory`, `AddonCompartmentFunc` | PENDING | PENDING |
 | Смена языка (0.4.1) | `ReloadUI()` из диалога `StaticPopup` | PENDING | PENDING |
 | Выпадающий список (0.4.1) | `SetFrameStrata`, `SetClampedToScreen`, `SetColorTexture`, слой `HIGHLIGHT`, `UISpecialFrames` | PENDING | PENDING |
+| Подсказки (0.4.2) | `GameTooltip:SetOwner/SetText/AddLine(..., wrap)/Show/Hide`, `Frame:HookScript`, `EnableMouse`, `SetHitRectInsets`, `FontString:GetStringWidth` | PENDING | PENDING |

@@ -127,6 +127,7 @@ local function build()
         ns.Engine.SetEnabled(not ns.db.settings.enabled)
     end)
     autoButton:SetPoint("TOPRIGHT", close, "TOPLEFT", -8, -4)
+    W.Tooltip(autoButton, L.TIP_AUTO_CAPTURE, L.AUTO_CAPTURE)
 
     local sidebar = CreateFrame("Frame", nil, window, "BackdropTemplate")
     sidebar:SetPoint("TOPLEFT", 10, -44)
@@ -135,6 +136,7 @@ local function build()
     for i, id in ipairs(UI.TABS) do
         local button = W.Button(sidebar, L["TAB_" .. id], 136, function() UI.ShowTab(id) end)
         button:SetPoint("TOP", sidebar, "TOP", 0, -8 - (i - 1) * 28)
+        W.Tooltip(button, L["TIP_TAB_" .. id], L["TAB_" .. id])
         navButtons[id] = button
     end
 
@@ -206,9 +208,9 @@ end
 
 UI.builders.home = function(parent)
     local column = W.Column(parent, 16, 16)
-    column:Add(W.Dropdown(parent, L.PROFILE, UI.ProfileOptions,
+    column:Add(W.Tooltip(W.Dropdown(parent, L.PROFILE, UI.ProfileOptions,
         function() return ns.Profiles.ActiveName() end,
-        function(name) ns.Profiles.SetActive(name, ns.Profiles.IsCharacterOverride()) end, 160))
+        function(name) ns.Profiles.SetActive(name, ns.Profiles.IsCharacterOverride()) end, 160), L.TIP_PROFILE))
     local stats = column:Add(W.Text(parent, ""), 22)
     local pauseInfo = column:Add(W.Text(parent, ""), 22)
     local capsule = column:Add(W.Text(parent, "", "GameFontHighlightSmall"), 22)
@@ -221,10 +223,13 @@ UI.builders.home = function(parent)
     end
     column:Space(10)
     local shot = W.Button(parent, L.TAKE_SHOT, 160, function() ns.Engine.ManualShot() end)
+    W.Tooltip(shot, L.TIP_TAKE_SHOT, L.TAKE_SHOT)
     column:Add(shot, 26)
     local pause = W.Button(parent, "", 160, function() ns.Engine.SetEnabled(not ns.db.settings.enabled) end)
+    W.Tooltip(pause, L.TIP_PAUSE, L.PAUSE .. " / " .. L.RESUME)
     pause:SetPoint("LEFT", shot, "RIGHT", 10, 0)
     local panel = W.Button(parent, L.MANUAL_PANEL, 160, function() ns.ManualPanel.Toggle() end)
+    W.Tooltip(panel, L.TIP_MANUAL_PANEL, L.MANUAL_PANEL)
     panel:SetPoint("LEFT", pause, "RIGHT", 10, 0)
 
     return {
@@ -300,6 +305,7 @@ function UI.ShowFirstRun()
             ns.ownFrames[frame] = nil
             frame:Hide()
         end)
+        W.Tooltip(button, L["TIP_PRESET_" .. name], L["PRESET_" .. name])
         local column = (i - 1) % 2
         local row = math.floor((i - 1) / 2)
         button:SetPoint("TOPLEFT", 20 + column * 200, -96 - row * 30)
@@ -310,6 +316,7 @@ function UI.ShowFirstRun()
         frame:Hide()
     end)
     later:SetPoint("BOTTOM", 0, 14)
+    W.Tooltip(later, L.TIP_FIRST_RUN_LATER, L.LATER)
     frame:Show()
 end
 
