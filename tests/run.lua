@@ -67,7 +67,7 @@ end
 
 -- Expected steps for a distance in yards.
 local function stepsFor(yards)
-    return yards * 0.9144 / 0.75
+    return yards * 0.9144 / 1.5
 end
 
 ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ end
 ---------------------------------------------------------------------------
 test("T01 fresh install: all defaults, nothing to set up", function()
     local _, ns = start()
-    eq(ns.db.schemaVersion, 3, "schema")
+    eq(ns.db.schemaVersion, 4, "schema")
     local s = ns.db.settings
     eq(s.enabled, true, "auto capture on")
     eq(s.mode, "normal", "normal shot")
@@ -122,7 +122,7 @@ end
 test("migration 0.4.2 -> 0.5.0 keeps history, stats and compatible settings", function()
     local _, ns = start({ savedDB = oldDB() })
     local db = ns.db
-    eq(db.schemaVersion, 3, "schema")
+    eq(db.schemaVersion, 4, "schema")
     eq(db.settings.enabled, false, "pause kept")
     eq(db.settings.locale, "ruRU", "language kept")
     eq(db.settings.sound, true, "sound kept (it was set)")
@@ -149,6 +149,22 @@ test("migration 0.4.2 -> 0.5.0 keeps history, stats and compatible settings", fu
     noErrors(ns)
 end)
 
+test("migration 0.5.0 -> 0.5.1: steps converted to the 1.5 m step, once", function()
+    local saved = { schemaVersion = 3, settings = {}, characters = {
+        ["Forever:Nedisan"] = { shots = {}, steps = { total = 1000, days = { ["2026-11-24"] = 400 } } } } }
+    local _, ns = start({ savedDB = saved })
+    local steps = ns.db.characters["Forever:Nedisan"].steps
+    eq(steps.total, 500, "total halved") eq(steps.days["2026-11-24"], 200, "day halved")
+    local _, ns2 = start({ savedDB = ns.db })
+    eq(ns2.db.characters["Forever:Nedisan"].steps.total, 500, "not converted twice")
+end)
+
+test("one step = 1.5 m: a 1.5 m tap of W adds one step", function()
+    local _, ns = start()
+    eq(ns.Steps.STEP_METERS, 1.5, "step length")
+    near(ns.Steps.YardsToSteps(1.5 / 0.9144), 1, 0.0001, "1.5 m")
+end)
+
 test("migration runs once: loading again does not duplicate records", function()
     local _, ns = start({ savedDB = oldDB() })
     local saved = ns.db
@@ -168,7 +184,7 @@ end)
 
 test("T24 damaged data is repaired without errors", function()
     local _, ns = start({ savedDB = {
-        schemaVersion = 3,
+        schemaVersion = 4,
         settings = { enabled = "yes", scale = 9, locale = "xx", mode = "dual", bogus = 1, events = { LEVEL = "on", RARE = true } },
         characters = { ["Forever:Nedisan"] = { shots = { { t = 1, ev = "LEVEL" }, "junk" }, steps = { total = "x", days = { a = -1 } } },
                        [5] = {} },

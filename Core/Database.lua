@@ -2,8 +2,8 @@
 -- Loads, migrates and validates ForeverMemoriesDB. Pure logic: no client
 -- calls, so every rule here is covered by offline tests.
 --
--- Schema 3 (v0.5.0):
---   schemaVersion = 3
+-- Schema 4 (v0.5.1; 3 had the same layout with 0.75 m steps):
+--   schemaVersion = 4
 --   settings   = account-wide settings (one set for every character)
 --   ui         = { point = { point, relativePoint, x, y } }
 --   counters   = { unattributed = n }  Print Screen etc., diagnostics only
@@ -24,7 +24,7 @@ local _, ns = ...
 local Database = {}
 ns.Database = Database
 
-Database.SCHEMA_VERSION = 3
+Database.SCHEMA_VERSION = 4
 Database.MAX_SHOTS = 5000 -- per character; counters are never trimmed
 
 -- Settings: type, default and allowed values. Anything else is reset.
@@ -178,6 +178,30 @@ Database.MIGRATIONS = {
         db.legacy = #legacy > 0 and legacy or nil
 
         db.profiles, db.journal, db.nextJournalId = nil, nil, nil
+    end,
+
+    -- 0.5.0 -> 0.5.1: one step is 1.5 m instead of 0.75 m. Steps already
+    -- counted are converted, so old and new days are comparable.
+    [3] = function(db)
+        if type(db.characters) ~= "table" then
+            return
+        end
+        local factor = 0.75 / 1.5
+        for _, character in pairs(db.characters) do
+            local steps = type(character) == "table" and character.steps
+            if type(steps) == "table" then
+                if type(steps.total) == "number" then
+                    steps.total = steps.total * factor
+                end
+                if type(steps.days) == "table" then
+                    for day, value in pairs(steps.days) do
+                        if type(value) == "number" then
+                            steps.days[day] = value * factor
+                        end
+                    end
+                end
+            end
+        end
     end,
 }
 

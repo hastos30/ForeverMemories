@@ -3,7 +3,7 @@
 -- Independent from auto capture: pause does not stop it, and an error in
 -- one module never stops the other (every tick runs in its own pcall).
 --
--- Model: steps = measured ground distance in meters / 0.75.
+-- Model: steps = measured ground distance in meters / 1.5.
 -- Positions and speeds come in yards (1 yard = 0.9144 m).
 --
 -- Every TICK seconds:
@@ -23,7 +23,7 @@ local Steps = {}
 ns.Steps = Steps
 
 Steps.TICK = 0.5              -- seconds between measurements
-Steps.STEP_METERS = 0.75
+Steps.STEP_METERS = 1.5       -- one running stride in game (v0.5.1; was 0.75)
 Steps.YARD_METERS = 0.9144
 Steps.SPEED_SLACK = 1.5       -- measured distance may exceed speed x time by 50 %
 Steps.MIN_ALLOWANCE = 1       -- yards, for rounding and turns
