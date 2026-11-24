@@ -1,6 +1,7 @@
 -- UI/Capture.lua
--- "Auto capture" tab (spec 5): how to shoot (two modes) and when (nine
--- events). Delays, priorities and limits stay inside the Engine.
+-- "Auto capture" tab (spec 5): how to shoot (two modes), when (nine
+-- events) and passive capture by time (v0.6.0). Delays, priorities and
+-- limits stay inside the Engine; the timer lives in Modules/Passive.lua.
 local _, ns = ...
 
 local L = ns.L
@@ -65,7 +66,7 @@ UI.builders.capture = function(parent)
             function() return ns.db.settings.events[id] end,
             function(value) ns.db.settings.events[id] = value end,
             UI.CONTENT_WIDTH)
-        check:SetPoint("TOPLEFT", 0, -164 - (i - 1) * 30)
+        check:SetPoint("TOPLEFT", 0, -164 - (i - 1) * 28)
         W.Tooltip(check, function()
             local available, reason = ns.Registry.Status(id)
             if available then
@@ -77,7 +78,53 @@ UI.builders.capture = function(parent)
         checks[i] = check
     end
 
+    -- Passive capture: one switch and the interval (15 / 30 / 45 / 60 min).
+    local line2 = W.Divider(parent)
+    line2:SetPoint("TOPLEFT", 0, -422)
+    line2:SetPoint("TOPRIGHT", 0, -422)
+    local clock = W.Icon(parent, "Interface\\Icons\\INV_Misc_PocketWatch_01", 18)
+    clock:SetPoint("TOPLEFT", 0, -434)
+    local passiveHeading = W.Heading(parent, L.PASSIVE_HEADING)
+    passiveHeading:SetPoint("LEFT", clock, "RIGHT", 8, 0)
+    local passiveCheck = W.Check(parent, L.SET_PASSIVE,
+        function() return ns.db.settings.passive end,
+        function(value) ns.db.settings.passive = value end,
+        UI.CONTENT_WIDTH)
+    passiveCheck:SetPoint("TOPLEFT", 0, -460)
+    W.Tooltip(passiveCheck, L.TIP_PASSIVE)
+    local intervalLabel = W.Text(parent, L.PASSIVE_INTERVAL, "GameFontHighlight", W.COLORS.text)
+    intervalLabel:SetPoint("TOPLEFT", 0, -494)
+    local intervalButtons = {}
+    for i, minutes in ipairs(ns.Passive.INTERVALS) do
+        local button = W.Button(parent, string.format(L.MINUTES_SHORT, minutes), 76, 24, function()
+            ns.db.settings.passiveInterval = minutes -- the timer restarts by itself
+            parent:Refresh()
+        end)
+        button:SetPoint("TOPLEFT", (i - 1) * 84, -512)
+        W.Tooltip(button, L.TIP_PASSIVE_INTERVAL, L.PASSIVE_INTERVAL)
+        button.minutes = minutes
+        intervalButtons[i] = button
+    end
+    local passiveHint = W.Text(parent, "", "GameFontHighlightSmall", W.COLORS.muted)
+    passiveHint:SetPoint("TOPLEFT", 0, -546)
+    passiveHint:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+
+    local function refreshPassive()
+        local settings = ns.db.settings
+        passiveCheck:Refresh()
+        for _, button in ipairs(intervalButtons) do
+            button:SetDisabled(not settings.passive)
+            button:SetSelected(settings.passive and button.minutes == settings.passiveInterval)
+        end
+        if settings.passive then
+            passiveHint:SetText(string.format(L.PASSIVE_HINT, settings.passiveInterval))
+        else
+            passiveHint:SetText(L.PASSIVE_OFF_HINT)
+        end
+    end
+
     function parent:Refresh()
+        refreshPassive()
         for _, card in ipairs(cards) do
             card:Refresh()
         end

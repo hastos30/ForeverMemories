@@ -18,6 +18,9 @@
 --   visited = { [zoneKey] = true }, zonesSeeded,
 --   guild = name | false | nil (nil = unknown yet),
 --   steps = { total = x, days = { ["2026-11-24"] = x }, since = t },
+--   passive = { elapsed = seconds of active play, interval = minutes it
+--               was counted for },  (v0.6.0; added by validation, no
+--               migration needed)
 -- }
 local _, ns = ...
 
@@ -37,6 +40,9 @@ Database.SETTINGS = {
     minimapAngle = { kind = "number", default = 200, min = 0, max = 360 },
     locale = { kind = "enum", default = "auto", values = { "auto", "enUS", "ruRU" } },
     scale = { kind = "number", default = 1, min = 0.75, max = 1.3 },
+    -- Passive capture (v0.6.0): on/off and minutes of active play.
+    passive = { kind = "boolean", default = true },
+    passiveInterval = { kind = "enum", default = 30, values = { 15, 30, 45, 60 } },
 }
 
 local TOP_LEVEL = {
@@ -61,6 +67,7 @@ local function newCharacter(key)
         shots = {}, shotsTotal = 0, shotsByDay = {}, shotZones = {},
         visited = {},
         steps = { total = 0, days = {} },
+        passive = { elapsed = 0 },
     }
 end
 
@@ -245,7 +252,7 @@ local function validateSettings(db, repaired)
     -- Events: every approved event has a switch, on by default.
     local events = tableOf(settings, "events", repaired, "settings.events")
     for key, value in pairs(events) do
-        if not ns.Registry.TRIGGERS[key] or key == "MANUAL" or type(value) ~= "boolean" then
+        if not ns.Util.Contains(ns.Registry.EVENTS, key) or type(value) ~= "boolean" then
             events[key] = nil
             repaired[#repaired + 1] = "settings.events." .. tostring(key)
         end
@@ -297,6 +304,13 @@ local function validateCharacter(character, path, repaired)
             days[key] = nil
             repaired[#repaired + 1] = path .. ".steps.days." .. tostring(key)
         end
+    end
+    local passive = tableOf(character, "passive", repaired, path .. ".passive")
+    if not number(passive.elapsed) or passive.elapsed > 3600 then
+        passive.elapsed = 0
+    end
+    if type(passive.interval) ~= "number" then
+        passive.interval = nil -- the timer sets it and starts from zero
     end
 end
 

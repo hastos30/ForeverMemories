@@ -1,6 +1,7 @@
 -- Modules/Notifications.lua
--- A small toast after a shot is saved and the UI is restored. It is
--- hidden before every capture, so it never appears in a screenshot.
+-- A small toast and a chat line (v0.6.0) after a shot is saved and the UI
+-- is restored. The toast is hidden before every capture, so it never
+-- appears in a screenshot. Both follow the "notifications" setting.
 -- The Step Tracker has no notifications.
 local _, ns = ...
 
@@ -63,6 +64,12 @@ end
 function Notifications.OnComplete(record, request, result)
     if record then
         Notifications.Show(L.SHOT_SAVED, ns.History.Title(record))
+        if ns.db.settings.notifications then
+            -- v0.6.0: every saved shot is also reported in chat.
+            local detail = ns.History.Detail(record)
+            ns.API.Print(L.SHOT_SAVED .. ": " .. ns.History.Title(record)
+                .. (detail ~= "" and (" (" .. detail .. ")") or ""))
+        end
         if ns.db.settings.sound then
             ns.API.PlaySuccessSound()
         end

@@ -23,7 +23,13 @@ function Rules.Evaluate(event, settings, context)
         if not ns.Registry.IsAvailable(event.type) then
             return nil, "unavailable"
         end
-        if not settings.events[event.type] then
+        local enabled
+        if trigger.passive then
+            enabled = settings.passive
+        else
+            enabled = settings.events[event.type]
+        end
+        if not enabled then
             return nil, "disabled"
         end
         if not settings.enabled then

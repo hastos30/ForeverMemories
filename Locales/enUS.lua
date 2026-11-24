@@ -38,7 +38,7 @@ ns.locales.enUS = {
     EVENT_LEVEL = "New level", EVENT_DEATH = "Death", EVENT_BOSS = "Boss defeated (dungeon or raid)",
     EVENT_DUEL = "Duel won", EVENT_LOOT_RARE = "Rare item", EVENT_LOOT_EPIC = "Epic item",
     EVENT_LOOT_LEGENDARY = "Legendary item", EVENT_ZONE = "New zone", EVENT_GUILD = "Joined a guild",
-    EVENT_MANUAL = "Manual screenshot",
+    EVENT_MANUAL = "Manual screenshot", EVENT_PASSIVE = "Passive screenshot",
     -- Records from earlier versions
     EVENT_MOUNT = "New mount", EVENT_DUNGEON = "Dungeon completed", EVENT_QUEST = "Quest completed",
     EVENT_FORM = "New druid form", EVENT_JOURNEY = "Journey", EVENT_RANDOM = "Random shot",
@@ -54,6 +54,16 @@ ns.locales.enUS = {
     TIP_EVENT_LOOT_LEGENDARY = "You receive an orange (legendary) item.",
     TIP_EVENT_ZONE = "The first visit of this character to a zone. Zones visited before are not captured again.",
     TIP_EVENT_GUILD = "Your character joins a guild. Logging in is not a join.",
+
+    -- Passive capture
+    PASSIVE_HEADING = "Passive capture",
+    SET_PASSIVE = "Take screenshots automatically over time",
+    PASSIVE_INTERVAL = "Interval between screenshots",
+    MINUTES_SHORT = "%d min",
+    PASSIVE_HINT = "One extra screenshot every %d minutes of active play.",
+    PASSIVE_OFF_HINT = "Passive capture is off.",
+    TIP_PASSIVE = "After every chosen interval of active play, one screenshot is taken in the chosen mode, independently of the events above. Time spent AFK, on loading screens, while auto capture is paused and outside the game is not counted. In combat the shot waits until combat ends. Each character has its own timer, kept between sessions.",
+    TIP_PASSIVE_INTERVAL = "Minutes of active play between passive screenshots. Changing the interval restarts the count.",
 
     -- History
     SUB_SHOTS = "Screenshots", SUB_STEPS = "Steps",
@@ -72,7 +82,7 @@ ns.locales.enUS = {
     GENERAL_SETTINGS = "General settings",
     SET_MINIMAP = "Minimap button", SET_NOTIFICATIONS = "Screenshot notifications", SET_SOUND = "Sound",
     TIP_SET_MINIMAP = "Shows the addon button at the minimap. /fm opens the window without it.",
-    TIP_SET_NOTIFICATIONS = "A short message after a screenshot is saved. It never appears in the screenshot.",
+    TIP_SET_NOTIFICATIONS = "A short on-screen message and a chat line after every saved screenshot. It never appears in the screenshot.",
     TIP_SET_SOUND = "A quiet sound after a screenshot is saved.",
     SET_LANGUAGE = "Interface language", LANGUAGE_AUTO = "Automatic",
     TIP_SET_LANGUAGE = "Automatic uses the language of the game client. A change applies after reloading the interface.",

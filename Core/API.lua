@@ -126,6 +126,22 @@ function API.InCombat()
     return InCombatLockdown() and true or false
 end
 
+-- True when the character is marked AFK. UnitIsAFK is a standard client
+-- function, not yet checked in Forever: if it is missing or returns a
+-- secret value, the character is treated as not AFK (see
+-- API_COMPATIBILITY.md, "Пассивная съёмка").
+function API.IsAFK()
+    local isAFK = API.Resolve("UnitIsAFK")
+    if not isAFK then
+        return false
+    end
+    local value = isAFK("player")
+    if API.IsSecret(value) then
+        return false
+    end
+    return value and true or false
+end
+
 function API.PlayerLevel()
     return call("UnitLevel", "player")
 end

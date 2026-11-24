@@ -1,4 +1,4 @@
-# Архитектура (v0.5.0)
+# Архитектура (v0.5.0, дополнено в v0.6.0)
 
 ## 1. Структура
 ```
@@ -21,7 +21,7 @@ ForeverMemories/
 | API | Единственное место вызова функций клиента. Возвращает значение или nil; secret values никогда не используются в арифметике. |
 | Init | Пространство имён, один диспетчер событий (`ns.On`), `SafeCall`, локализация, `ns.Num`/`ns.Count`, порядок старта (`onReady`, `onLogin`). |
 | Database | Загрузка, миграции (1→2→3), проверка и ремонт ForeverMemoriesDB. Чистая логика. |
-| Registry | 9 событий + MANUAL: внутренние задержка, приоритет, иконка; доступность в клиенте. |
+| Registry | 9 событий + MANUAL + PASSIVE: внутренние задержка, приоритет, иконка; доступность в клиенте. |
 | Events | Событие клиента → `{type, key, info, character, zone}` → Engine. |
 | Rules | Чистая функция: событие + настройки → запрос или причина отказа. |
 | Queue | Ограниченная очередь (20) с приоритетом, объединением (0,5 с) и TTL. |
@@ -29,7 +29,8 @@ ForeverMemories/
 | Engine | Один активный запрос, один снимок; подтверждение по SCREENSHOT_SUCCEEDED; лимиты 60/час и 300/сессию. |
 | History | Записи и счётчики снимков текущего персонажа; тексты записей. |
 | Steps | Шагомер: свой таймер 0,5 с, независим от Engine. |
-| Notifications | Тост после сохранённого снимка. |
+| Passive | Пассивная съёмка (v0.6.0): таймер 1 с считает активное время персонажа и, когда интервал набран и нет боя, отдаёт в Engine запрос `PASSIVE`. Своего кода съёмки нет. |
+| Notifications | Тост и строка в чате после сохранённого снимка. |
 | UI | Только отображение. Снимки — через `Engine.ManualShot`. |
 
 Автосъёмка и шагомер не вызывают друг друга. Каждый обработчик события и каждый тик шагомера
@@ -38,7 +39,8 @@ ForeverMemories/
 
 ## 3. Поток снимка
 ```
-событие клиента → Events → Engine.Submit → Rules.Evaluate → Queue.Push
+событие клиента → Events ─┐
+таймер Passive (интервал) ─┴→ Engine.Submit → Rules.Evaluate → Queue.Push
   → (задержка события) → Engine: PREPARING (UIState.Prepare) → CAPTURING (Screenshot)
   → WAIT_RESULT → SCREENSHOT_SUCCEEDED → History.AddShot → Notifications
                  → FAILED / таймаут 5 с → в лог, счётчики не меняются
@@ -67,6 +69,7 @@ ForeverMemories/
 ForeverMemoriesDB = {
   schemaVersion = 4,
   settings = { enabled, mode = "normal"|"clean", events = { LEVEL = true, ... },
+               passive = true, passiveInterval = 15|30|45|60,       -- v0.6.0
                notifications, sound, minimap, minimapAngle, locale, scale },
   ui = { point = {...} },
   counters = { unattributed },
@@ -75,7 +78,8 @@ ForeverMemoriesDB = {
       shots = { { t, ev, zone, info, manual } ... },   -- до 5000, старые удаляются
       shotsTotal, shotsByDay = { ["2026-11-24"] = n }, shotZones = { [зона] = true },
       visited = { [ключ зоны] = true }, zonesSeeded, guild,
-      steps = { total, days = { ["2026-11-24"] = x }, since } } },
+      steps = { total, days = { ["2026-11-24"] = x }, since },
+      passive = { elapsed = секунды активной игры, interval = минуты } } },  -- v0.6.0
   legacy = { записи 0.4.2 без владельца },
 }
 ```

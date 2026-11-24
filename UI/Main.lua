@@ -10,7 +10,7 @@ ns.UI = UI
 local L = ns.L
 local W = ns.Widgets
 
-UI.WIDTH, UI.HEIGHT = 620, 640
+UI.WIDTH, UI.HEIGHT = 620, 720 -- 720 since v0.6.0 (passive capture block)
 UI.PAD = 16
 UI.CONTENT_WIDTH = UI.WIDTH - 2 * UI.PAD
 UI.TABS = { "home", "capture", "history", "settings" }

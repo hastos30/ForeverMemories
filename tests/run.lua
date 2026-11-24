@@ -557,6 +557,163 @@ test("steps work while auto capture is paused; an error in one module does not s
 end)
 
 ---------------------------------------------------------------------------
+-- Passive capture (v0.6.0)
+---------------------------------------------------------------------------
+local MIN = 60
+
+local function passiveShots(ns)
+    local n = 0
+    for _, record in ipairs(shots(ns)) do
+        if record.ev == "PASSIVE" then n = n + 1 end
+    end
+    return n
+end
+
+local function elapsed(ns)
+    return ns.character.passive.elapsed
+end
+
+test("passive: defaults on, 30 min, account-wide; timer stored per character", function()
+    local _, ns = start()
+    eq(ns.db.settings.passive, true, "on by default")
+    eq(ns.db.settings.passiveInterval, 30, "30 minutes")
+    eq(type(ns.character.passive), "table", "timer of the character")
+    eq(ns.db.settings.events.PASSIVE, nil, "not one of the nine events")
+end)
+
+test("passive: one shot after 30 min of active play, in history and statistics", function()
+    local env, ns = start()
+    env.advance(29 * MIN)
+    eq(passiveShots(ns), 0, "not yet")
+    env.advance(1 * MIN + 5)
+    eq(passiveShots(ns), 1, "one passive shot")
+    local record = lastShot(ns)
+    eq(ns.History.Title(record), "Passive screenshot", "title")
+    eq(record.zone, "Elwynn Forest", "zone") eq(type(record.t), "number", "date and time")
+    local s = ns.History.Stats()
+    eq(s.total, 1, "total") eq(s.today, 1, "today")
+    eq(ns.History.Recent(5)[1], record, "in last shots")
+    eq(elapsed(ns) < 10, true, "timer restarted")
+    env.advance(30 * MIN)
+    eq(passiveShots(ns), 2, "next interval")
+    noErrors(ns)
+end)
+
+test("passive: Russian title", function()
+    local env, ns = start({ locale = "ruRU" })
+    env.advance(30 * MIN + 5)
+    eq(ns.History.Title(lastShot(ns)), "Пассивный снимок", "ru title")
+end)
+
+test("passive: uses the chosen mode (clean hides the UI for the shot)", function()
+    local env, ns = start()
+    ns.db.settings.mode = "clean"
+    env.advance(30 * MIN + 5)
+    eq(passiveShots(ns), 1, "shot")
+    eq(env.uiShownAtShot, false, "clean frame")
+    eq(UIParent:IsShown(), true, "UI back")
+end)
+
+test("passive: independent of the event switches; its own switch stops it", function()
+    local env, ns = start()
+    for _, id in ipairs(ns.Registry.EVENTS) do ns.db.settings.events[id] = false end
+    env.advance(30 * MIN + 5)
+    eq(passiveShots(ns), 1, "events off, passive still works")
+    ns.db.settings.events.LEVEL = true
+    ns.db.settings.passive = false
+    env.advance(60 * MIN)
+    eq(passiveShots(ns), 1, "passive off: no shots")
+    levelUp(env, 11)
+    env.advance(5)
+    eq(lastShot(ns).ev, "LEVEL", "events work without passive")
+end)
+
+test("passive: AFK, loading screens and global pause do not count", function()
+    local env, ns = start()
+    env.advance(10 * MIN)
+    local before = elapsed(ns)
+    env.afk = true
+    env.advance(40 * MIN)
+    near(elapsed(ns), before, 1.01, "AFK not counted")
+    env.afk = false
+    ns.Engine.SetEnabled(false)
+    env.advance(40 * MIN)
+    near(elapsed(ns), before, 1.01, "pause: timer stopped")
+    ns.Engine.SetEnabled(true)
+    env.fire("PLAYER_LEAVING_WORLD")
+    env.advance(40 * MIN)
+    near(elapsed(ns), before, 1.01, "loading screen not counted")
+    env.fire("PLAYER_ENTERING_WORLD")
+    eq(passiveShots(ns), 0, "no shots meanwhile")
+    env.advance(20 * MIN + 5)
+    eq(passiveShots(ns), 1, "counting resumes where it stopped")
+end)
+
+test("passive: in combat the shot waits; missed intervals give one shot", function()
+    local env, ns = start()
+    env.combat = true
+    env.fire("PLAYER_REGEN_DISABLED")
+    env.advance(100 * MIN)
+    eq(passiveShots(ns), 0, "no shot in combat")
+    eq(elapsed(ns), 30 * MIN, "timer stops at the interval")
+    env.combat = false
+    env.fire("PLAYER_REGEN_ENABLED")
+    env.advance(5)
+    eq(passiveShots(ns), 1, "one shot after combat, not three")
+    env.advance(5 * MIN)
+    eq(passiveShots(ns), 1, "no catch-up shots")
+end)
+
+test("passive: changing the interval restarts the count", function()
+    local env, ns = start()
+    env.advance(20 * MIN)
+    ns.db.settings.passiveInterval = 15
+    env.advance(2)
+    eq(elapsed(ns) <= 2, true, "restarted")
+    eq(passiveShots(ns), 0, "20 min counted for 30 do not fire the 15")
+    env.advance(15 * MIN)
+    eq(passiveShots(ns), 1, "15 min later")
+end)
+
+test("passive: duplicate protection and the shared queue", function()
+    local env, ns = start()
+    local ok1 = ns.Engine.Submit({ type = "PASSIVE", key = "passive", character = ns.characterKey })
+    local ok2, why = ns.Engine.Submit({ type = "PASSIVE", key = "passive", character = ns.characterKey })
+    eq(ok1, true, "first accepted") eq(ok2, false, "second refused") eq(why, "duplicate", "dedupe")
+    env.advance(5)
+    eq(passiveShots(ns), 1, "one shot")
+end)
+
+test("passive: timer kept after reload and next login, per character", function()
+    local env, ns = start()
+    env.advance(20 * MIN)
+    local saved = ns.db
+    local env2 = Mock.new({ savedDB = saved })
+    local ns2 = env2.login(".")
+    near(ns2.character.passive.elapsed, 20 * MIN, 2, "kept after reload")
+    env2.advance(10 * MIN + 5)
+    eq(passiveShots(ns2), 1, "continues to the interval")
+    local env3 = Mock.new({ savedDB = saved })
+    _G.UnitName = function() return "Alt" end
+    local ns3 = env3.login(".")
+    eq(ns3.character.passive.elapsed, 0, "another character has its own timer")
+    eq(passiveShots(ns3), 0, "and its own history")
+    _G.UnitName = function() return "Nedisan" end
+end)
+
+test("passive: damaged saved values are repaired", function()
+    local env = Mock.new({ savedDB = {
+        schemaVersion = 4,
+        settings = { passive = "yes", passiveInterval = 20, events = { PASSIVE = true } },
+        characters = { ["Forever:Nedisan"] = { passive = { elapsed = -5, interval = "x" } } },
+    } })
+    local ns = env.login(".")
+    eq(ns.db.settings.passive, true, "switch reset") eq(ns.db.settings.passiveInterval, 30, "interval reset")
+    eq(ns.db.settings.events.PASSIVE, nil, "not an event switch")
+    eq(ns.character.passive.elapsed, 0, "elapsed reset")
+end)
+
+---------------------------------------------------------------------------
 -- Formatting and locales
 ---------------------------------------------------------------------------
 test("numbers: separators and Russian word forms", function()
@@ -596,6 +753,7 @@ end)
 test("every L.KEY used in code exists in enUS", function()
     local _, ns = start()
     local files = { "Core/Commands.lua", "Core/Events.lua", "Modules/History.lua", "Modules/Notifications.lua",
+                    "Modules/Passive.lua",
                     "UI/Main.lua", "UI/Capture.lua", "UI/History.lua", "UI/Settings.lua", "UI/Minimap.lua" }
     for _, file in ipairs(files) do
         local text = assert(io.open(file)):read("*a")
@@ -756,6 +914,48 @@ test("slash commands run without errors", function()
     end
     env.advance(3)
     noErrors(ns)
+end)
+
+test("passive: Auto capture tab block, interval buttons and switch", function()
+    local env, ns = start()
+    ns.UI.Toggle("capture")
+    eq(hasText(env, "Passive capture"), true, "heading")
+    eq(hasText(env, "One extra screenshot every 30 minutes of active play."), true, "hint")
+    findButton(env, "45 min"):Click()
+    eq(ns.db.settings.passiveInterval, 45, "interval chosen")
+    eq(hasText(env, "One extra screenshot every 45 minutes of active play."), true, "hint updated")
+    eq(findButton(env, "45 min").selected, true, "selected")
+    eq(findButton(env, "30 min").selected, false, "old one not selected")
+    ns.db.settings.passive = false
+    ns.UI.Refresh()
+    eq(hasText(env, "Passive capture is off."), true, "off hint")
+    eq(findButton(env, "45 min").disabled, true, "buttons disabled when off")
+    eq(hasText(env, "9 of 9"), true, "event counter unchanged")
+    noErrors(ns)
+end)
+
+test("chat: every saved screenshot is reported in chat (manual, event, passive)", function()
+    local env, ns = start()
+    local function saidSaved()
+        local n = 0
+        for _, msg in ipairs(env.chat) do
+            if string.find(msg, "Screenshot saved", 1, true) then n = n + 1 end
+        end
+        return n
+    end
+    ns.Engine.ManualShot()
+    env.advance(2)
+    levelUp(env, 11)
+    env.advance(5)
+    env.advance(30 * 60 + 5)
+    eq(saidSaved(), 3, "three chat messages")
+    local last = env.chat[#env.chat]
+    eq(string.find(last, "Passive screenshot", 1, true) ~= nil, true, "title in chat")
+    eq(string.find(last, "Elwynn Forest", 1, true) ~= nil, true, "zone in chat")
+    ns.db.settings.notifications = false
+    ns.Engine.ManualShot()
+    env.advance(2)
+    eq(saidSaved(), 3, "notifications off: no chat message")
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))

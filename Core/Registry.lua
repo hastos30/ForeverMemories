@@ -1,6 +1,6 @@
 -- Core/Registry.lua
--- The nine approved game events (spec v0.5.0, section 5) plus the manual
--- shot. Delay and priority are internal: the player never sees or edits
+-- The nine approved game events (spec v0.5.0, section 5), the manual
+-- shot and the passive (timed) shot. Delay and priority are internal: the player never sees or edits
 -- them. Lower priority number = more important.
 local _, ns = ...
 
@@ -26,6 +26,9 @@ Registry.TRIGGERS = {
     ZONE = { delay = 2, priority = 3, icon = "Interface\\Icons\\INV_Misc_Map_01" },
     GUILD = { delay = 1, priority = 3, icon = "Interface\\Icons\\INV_Shirt_GuildTabard_01" },
     MANUAL = { delay = 0, priority = 0, icon = "Interface\\Icons\\INV_Misc_Spyglass_03" },
+    -- Passive capture (v0.6.0): a timer, not a game event. Its own switch
+    -- (settings.passive), lowest priority, not in the EVENTS list.
+    PASSIVE = { delay = 1, priority = 4, icon = "Interface\\Icons\\INV_Misc_PocketWatch_01", passive = true },
 }
 
 -- Icon for records of event types from older versions (kept in history).

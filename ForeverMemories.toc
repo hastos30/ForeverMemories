@@ -2,7 +2,7 @@
 ## Title: ForeverMemories
 ## Notes: Automatic screenshots of important moments and a step counter for World of Warcraft: Forever.
 ## Notes-ruRU: Автоматические скриншоты важных моментов и шагомер для World of Warcraft: Forever.
-## Version: 0.5.1
+## Version: 0.6.0
 ## SavedVariables: ForeverMemoriesDB
 ## IconTexture: Interface\Icons\INV_Misc_Spyglass_03
 ## AddonCompartmentFunc: ForeverMemories_OnAddonCompartmentClick
@@ -22,6 +22,7 @@ Capture\UIState.lua
 Capture\Engine.lua
 Core\Events.lua
 Modules\Steps.lua
+Modules\Passive.lua
 Modules\Notifications.lua
 UI\Widgets.lua
 UI\Main.lua

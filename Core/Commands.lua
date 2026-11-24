@@ -5,7 +5,7 @@
 --   /fm on|off|toggle automatic capture
 --   /fm shot          manual shot
 --   /fm status        short state in chat
---   /fm debug         diagnostics: client, API, events, step tracker
+--   /fm debug         diagnostics: client, API, events, step tracker, passive timer
 --   /fm log           last 20 log lines
 --   /fm ui            show the game interface again (emergency)
 --   /fm reset         window back to the center
@@ -19,7 +19,7 @@ local PROBE_FUNCTIONS = {
     "Screenshot", "GetBuildInfo", "C_Timer.After", "C_Timer.NewTicker", "InCombatLockdown",
     "GetRealZoneText", "C_Map.GetBestMapForUnit", "C_Map.GetMapInfo", "C_Map.GetPlayerMapPosition",
     "C_Map.GetWorldPosFromMapPos", "UnitPosition", "GetUnitSpeed", "IsSwimming", "IsFlying",
-    "UnitOnTaxi", "UnitInVehicle", "UnitGUID", "IsInInstance", "issecretvalue",
+    "UnitOnTaxi", "UnitInVehicle", "UnitIsAFK", "UnitGUID", "IsInInstance", "issecretvalue",
     "C_EventUtils.IsEventValid", "C_Item.GetItemQualityByID", "IsInGuild", "GetGuildInfo",
 }
 
@@ -74,6 +74,11 @@ function commands.debug()
         tostring(ns.API.MovementExclusion() or "-")))
     Print(string.format("Position: %s %s %s (%s)", tostring(space), x and string.format("%.1f", x) or "-",
         y and string.format("%.1f", y) or "-", tostring(from)))
+    local passiveState, elapsed, due = ns.Passive.Status()
+    Print(string.format("Passive: %s, interval %d min, counted %d:%02d of %d:00, state %s, afk %s",
+        ns.db.settings.passive and "on" or "off", ns.db.settings.passiveInterval,
+        math.floor(elapsed / 60), math.floor(elapsed % 60), due / 60, passiveState,
+        tostring(ns.API.IsAFK())))
     local character = ns.character
     Print(string.format("Character: %s, GUID %s%s, guild %s", ns.characterKey, tostring(character.guid),
         character.guidChanged and " (changed!)" or "", tostring(character.guild)))
