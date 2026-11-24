@@ -265,6 +265,38 @@ function API.ZoneKey()
     return name and ("zone:" .. name) or nil
 end
 
+-- Localized name of a uiMap, or nil.
+function API.MapName(mapID)
+    local getInfo = API.Resolve("C_Map.GetMapInfo")
+    local info = getInfo and plainNumber(mapID) and getInfo(mapID)
+    local name = type(info) == "table" and info.name
+    if type(name) ~= "string" or name == "" or API.IsSecret(name) then
+        return nil
+    end
+    return name
+end
+
+-- Localized name of an AreaTable ID (C_Map.GetAreaInfo). Returns nil plus
+-- "missing" when the client has no such function, nil when it does not
+-- know the area.
+function API.AreaName(areaID)
+    local getArea = API.Resolve("C_Map.GetAreaInfo")
+    if not getArea then
+        return nil, "missing"
+    end
+    local ok, name = pcall(getArea, areaID)
+    if not ok or type(name) ~= "string" or name == "" or API.IsSecret(name) then
+        return nil
+    end
+    return name
+end
+
+-- Maximum character level of this client (GetMaxPlayerLevel), or nil.
+function API.MaxLevel()
+    local level = call("GetMaxPlayerLevel")
+    return plainNumber(level) and level or nil
+end
+
 -- "none", "party", "raid", "pvp", "arena", "scenario" or nil.
 function API.InstanceType()
     local _, instanceType = call("IsInInstance")
@@ -394,6 +426,39 @@ function API.ClassIcon(classFile)
         return nil
     end
     return "Interface\\TargetingFrame\\UI-Classes-Circles", coords
+end
+
+-- Localized class name ("Druid" / "Друид"), or nil.
+function API.ClassName(classFile)
+    if type(classFile) ~= "string" then
+        return nil
+    end
+    local names = type(LOCALIZED_CLASS_NAMES_MALE) == "table" and LOCALIZED_CLASS_NAMES_MALE or nil
+    local name = names and names[classFile]
+    if type(name) == "string" and name ~= "" then
+        return name
+    end
+    return string.upper(string.sub(classFile, 1, 1)) .. string.lower(string.sub(classFile, 2))
+end
+
+-- Memory the addon uses right now, in KB (v0.10.0). This is RAM of the
+-- running client, NOT the size of the SavedVariables file. nil plus a
+-- reason when the client has no such function.
+function API.AddonMemoryKB(addonName)
+    local update = API.Resolve("UpdateAddOnMemoryUsage")
+    local get = API.Resolve("GetAddOnMemoryUsage")
+    if not update or not get then
+        return nil, "GetAddOnMemoryUsage unavailable"
+    end
+    local ok = pcall(update)
+    if not ok then
+        return nil, "UpdateAddOnMemoryUsage failed"
+    end
+    local ok2, value = pcall(get, addonName)
+    if not ok2 or not plainNumber(value) then
+        return nil, "no value"
+    end
+    return value
 end
 
 function API.PlaySuccessSound()

@@ -310,15 +310,18 @@ function Engine.SetEnabled(enabled)
     end
 end
 
--- Manual shot: the chosen mode and the same safe pipeline.
+-- Manual shot: the chosen mode (or `mode`, e.g. "clean" from the key
+-- binding) and the same safe pipeline. In combat "clean" falls back to
+-- "normal" (UIState never hides the UI in combat).
 local manualCount = 0
-function Engine.ManualShot()
+function Engine.ManualShot(mode)
     if not ns.characterKey then
         return false, "not_loaded"
     end
     manualCount = manualCount + 1
     return Engine.Submit({
         type = "MANUAL",
+        mode = mode,
         key = "manual:" .. manualCount,
         character = ns.characterKey,
         zone = API.ZoneName(),

@@ -22,16 +22,29 @@
 --               was counted for },  (v0.6.0; added by validation, no
 --               migration needed)
 --   playtime = { total = seconds, days = { ["2026-11-24"] = seconds } },
---   locations = { days = { ["2026-11-24"] = { [zoneKey] = { name, t, first } } } },
+--   locations = { days = { ["2026-11-24"] = { [zoneKey] = { name, t, first, instance } } } },
 --               (v0.8.0; both added by validation, no migration needed)
+--   -- Schema 5 (v0.9.0):
+--   visitedAt = { [zoneKey] = Unix time of the first registered visit },
+--   playtime.sinceDay = first day the Playtime Tracker counted ("2026-11-24"),
+--   playtime.sessions / playtime.longest = closed sessions and the longest
+--               one (active seconds), playtime.session = { start, last, active },
+--   journey = { started = t, events = { { t, kind, zone, info } }, firsts = { [kind] = t } }
+--   -- v0.11.0 (no migration, created on first use):
+--   -- v0.12.0: playtime.session also counts shots, steps, zones, newZones,
+--   -- levels and ended (logout time); playtime.lastSession = the last
+--   -- closed one; playtime.longestAt = start of the longest session.
+--   zoneStats = { since = t, current = { key, t },
+--                 zones = { [zoneKey] = { time, steps, visits, last } } }
 -- }
 local _, ns = ...
 
 local Database = {}
 ns.Database = Database
 
-Database.SCHEMA_VERSION = 4
+Database.SCHEMA_VERSION = 5
 Database.MAX_SHOTS = 5000 -- per character; counters are never trimmed
+Database.MAX_JOURNEY = 500 -- per character; levels and firsts only, far below this
 
 -- Settings: type, default and allowed values. Anything else is reset.
 Database.SETTINGS = {
@@ -42,15 +55,30 @@ Database.SETTINGS = {
     minimap = { kind = "boolean", default = true },
     minimapAngle = { kind = "number", default = 200, min = 0, max = 360 },
     locale = { kind = "enum", default = "auto", values = { "auto", "enUS", "ruRU" } },
-    scale = { kind = "number", default = 1, min = 0.75, max = 1.3 },
+    scale = { kind = "number", default = 1, min = 0.7, max = 1.5 }, -- 70-150 % since v0.10.0
     -- Passive capture (v0.6.0): on/off and minutes of active play.
     passive = { kind = "boolean", default = true },
     passiveInterval = { kind = "enum", default = 30, values = { 15, 30, 45, 60 } },
+    -- Settings / General (v0.10.0).
+    rememberTab = { kind = "boolean", default = true },
+    toastDuration = { kind = "enum", default = 5, values = { 3, 5, 10 } },
 }
+
+-- Settings on the Settings / General page: "Restore defaults" resets only
+-- these (and the window position). Capture settings, statistics and
+-- history are never touched by it.
+Database.GENERAL_SETTINGS = { "locale", "scale", "minimap", "rememberTab", "notifications", "sound", "toastDuration" }
+
+function Database.ResetGeneral(db)
+    for _, key in ipairs(Database.GENERAL_SETTINGS) do
+        db.settings[key] = Database.SETTINGS[key].default
+    end
+    db.ui.point = nil
+end
 
 local TOP_LEVEL = {
     schemaVersion = true, settings = true, ui = true, counters = true,
-    characters = true, legacy = true,
+    characters = true, legacy = true, zoneDump = true,
 }
 
 local function tableOf(parent, key, repaired, path)
@@ -68,11 +96,12 @@ local function newCharacter(key)
     return {
         name = name, realm = realm,
         shots = {}, shotsTotal = 0, shotsByDay = {}, shotZones = {},
-        visited = {},
+        visited = {}, visitedAt = {},
         steps = { total = 0, days = {} },
         passive = { elapsed = 0 },
-        playtime = { total = 0, days = {} },
+        playtime = { total = 0, days = {}, sessions = 0, longest = 0 },
         locations = { days = {} },
+        journey = { events = {}, firsts = {} },
     }
 end
 
@@ -215,7 +244,107 @@ Database.MIGRATIONS = {
             end
         end
     end,
+
+    -- 0.8.x -> 0.9.0: adventure diary. Only facts already in the data are
+    -- used: nothing gets a date it did not have.
+    [4] = function(db)
+        if type(db.characters) ~= "table" then
+            return
+        end
+        for _, character in pairs(db.characters) do
+            if type(character) == "table" then
+                Database.UpgradeCharacter(character)
+            end
+        end
+    end,
 }
+
+-- Journey kinds that come from older shot records (real dates).
+local JOURNEY_FROM_SHOT = {
+    LOOT_RARE = "FIRST_RARE", LOOT_EPIC = "FIRST_EPIC", LOOT_LEGENDARY = "FIRST_LEGENDARY",
+    DUEL = "FIRST_DUEL", GUILD = "GUILD",
+}
+Database.FIRST_KINDS = {
+    FIRST_DUNGEON_BOSS = true, FIRST_RAID_BOSS = true, FIRST_RARE = true, FIRST_EPIC = true,
+    FIRST_LEGENDARY = true, FIRST_DUEL = true, MAX_LEVEL = true,
+}
+
+-- Schema 4 -> 5 for one character (also safe on partial data).
+function Database.UpgradeCharacter(character)
+    local earliest
+    local function seen(t)
+        if type(t) == "number" and (not earliest or t < earliest) then
+            earliest = t
+        end
+    end
+
+    -- First registered visit of each zone: the earliest day-log entry.
+    local visitedAt = type(character.visitedAt) == "table" and character.visitedAt or {}
+    local logs = type(character.locations) == "table" and type(character.locations.days) == "table"
+        and character.locations.days or {}
+    for _, zones in pairs(logs) do
+        if type(zones) == "table" then
+            for key, entry in pairs(zones) do
+                if type(entry) == "table" and type(entry.t) == "number" then
+                    seen(entry.t)
+                    if not visitedAt[key] or entry.t < visitedAt[key] then
+                        visitedAt[key] = entry.t
+                    end
+                end
+            end
+        end
+    end
+    character.visitedAt = visitedAt
+
+    -- Playtime: the day it started counting; no sessions are known yet.
+    local playtime = type(character.playtime) == "table" and character.playtime or nil
+    if playtime and type(playtime.days) == "table" then
+        local first
+        for day in pairs(playtime.days) do
+            if type(day) == "string" and (not first or day < first) then
+                first = day
+            end
+        end
+        playtime.sinceDay = playtime.sinceDay or first
+        playtime.sessions = playtime.sessions or 0
+        playtime.longest = playtime.longest or 0
+    end
+
+    -- Journey from shots that really happened (levels, first items,
+    -- first duel win, guild joins). Bosses are skipped: an old shot does
+    -- not say whether it was a dungeon or a raid.
+    local journey = { events = {}, firsts = {} }
+    local shots = type(character.shots) == "table" and character.shots or {}
+    local levels = {}
+    for _, record in ipairs(shots) do
+        if type(record) == "table" and type(record.t) == "number" then
+            seen(record.t)
+            local kind
+            if record.ev == "LEVEL" and type(record.info) == "number" and not levels[record.info] then
+                levels[record.info] = true
+                kind = "LEVEL"
+            else
+                kind = JOURNEY_FROM_SHOT[record.ev]
+            end
+            if kind and not (Database.FIRST_KINDS[kind] and journey.firsts[kind]) then
+                if Database.FIRST_KINDS[kind] then
+                    journey.firsts[kind] = record.t
+                end
+                journey.events[#journey.events + 1] = {
+                    t = record.t, kind = kind, zone = record.zone, info = record.info,
+                }
+            end
+        end
+    end
+    if type(character.steps) == "table" then
+        seen(character.steps.since)
+    end
+    journey.started = earliest -- nil: set at the next login (nothing known before)
+    local old = character.journey
+    if type(old) ~= "table" or ((type(old.events) ~= "table" or #old.events == 0) and not old.started) then
+        character.journey = journey
+    end
+end
 
 ---------------------------------------------------------------------------
 -- Validation
@@ -321,6 +450,41 @@ local function validateCharacter(character, path, repaired)
     if not number(playtime.total) then
         playtime.total = 0
     end
+    if not number(playtime.sessions) then
+        playtime.sessions = 0
+    end
+    if not number(playtime.longest) then
+        playtime.longest = 0
+    end
+    if type(playtime.sinceDay) ~= "string" then
+        playtime.sinceDay = nil
+    end
+    local session = playtime.session
+    if session ~= nil and (type(session) ~= "table" or not number(session.start)
+        or not number(session.last) or not number(session.active)) then
+        playtime.session = nil
+        repaired[#repaired + 1] = path .. ".playtime.session"
+    end
+    if playtime.session then
+        local s = playtime.session
+        for _, field in ipairs({ "shots", "steps", "newZones", "levels", "ended" }) do
+            if s[field] ~= nil and not number(s[field]) then
+                s[field] = nil
+            end
+        end
+        if s.zones ~= nil and type(s.zones) ~= "table" then
+            s.zones = nil
+        end
+    end
+    if playtime.longestAt ~= nil and not number(playtime.longestAt) then
+        playtime.longestAt = nil
+    end
+    local last = playtime.lastSession
+    if last ~= nil and (type(last) ~= "table" or not number(last.start) or not number(last.finish)
+        or not number(last.active)) then
+        playtime.lastSession = nil
+        repaired[#repaired + 1] = path .. ".playtime.lastSession"
+    end
     local played = tableOf(playtime, "days", repaired, path .. ".playtime.days")
     for key, value in pairs(played) do
         if type(key) ~= "string" or not number(value) then
@@ -345,6 +509,83 @@ local function validateCharacter(character, path, repaired)
     end
 end
 
+-- Location Analytics (v0.11.0): added on first use, checked here.
+local function validateZoneStats(character, path, repaired)
+    local zs = character.zoneStats
+    if zs == nil then
+        return
+    end
+    if type(zs) ~= "table" or type(zs.zones) ~= "table" then
+        character.zoneStats = nil
+        repaired[#repaired + 1] = path .. ".zoneStats"
+        return
+    end
+    if not number(zs.since) then
+        zs.since = nil
+    end
+    if zs.current ~= nil and (type(zs.current) ~= "table" or type(zs.current.key) ~= "string"
+        or not number(zs.current.t)) then
+        zs.current = nil
+    end
+    for key, entry in pairs(zs.zones) do
+        if type(key) ~= "string" or type(entry) ~= "table" or not number(entry.time)
+            or not number(entry.steps) or not number(entry.visits) then
+            zs.zones[key] = nil
+            repaired[#repaired + 1] = path .. ".zoneStats." .. tostring(key)
+        elseif entry.last ~= nil and not number(entry.last) then
+            entry.last = nil
+        end
+    end
+end
+
+-- Adventure Achievements (v0.13.0): { seeded, done = { [id] = time | 0 } }.
+local function validateAchievements(character, path, repaired)
+    local a = character.achievements
+    if a == nil then
+        return
+    end
+    if type(a) ~= "table" or type(a.done) ~= "table" then
+        character.achievements = nil
+        repaired[#repaired + 1] = path .. ".achievements"
+        return
+    end
+    a.seeded = a.seeded == true
+    for id, at in pairs(a.done) do
+        if type(id) ~= "string" or not number(at) or at < 0 then
+            a.done[id] = nil
+            repaired[#repaired + 1] = path .. ".achievements." .. tostring(id)
+        end
+    end
+end
+
+local function validateJourney(character, path, repaired)
+    local visitedAt = tableOf(character, "visitedAt", repaired, path .. ".visitedAt")
+    for key, value in pairs(visitedAt) do
+        if type(key) ~= "string" or not number(value) then
+            visitedAt[key] = nil
+        end
+    end
+    local journey = tableOf(character, "journey", repaired, path .. ".journey")
+    if journey.started ~= nil and not number(journey.started) then
+        journey.started = nil
+    end
+    tableOf(journey, "firsts", repaired, path .. ".journey.firsts")
+    local events = tableOf(journey, "events", repaired, path .. ".journey.events")
+    local clean = {}
+    for i = 1, #events do
+        local e = events[i]
+        if type(e) == "table" and number(e.t) and type(e.kind) == "string" then
+            clean[#clean + 1] = e
+        else
+            repaired[#repaired + 1] = path .. ".journey.events[" .. i .. "]"
+        end
+    end
+    while #clean > Database.MAX_JOURNEY do
+        table.remove(clean, 1)
+    end
+    journey.events = clean
+end
+
 local function validateCharacters(db, repaired)
     local characters = tableOf(db, "characters", repaired, "characters")
     for key, character in pairs(characters) do
@@ -353,6 +594,9 @@ local function validateCharacters(db, repaired)
             repaired[#repaired + 1] = "characters." .. tostring(key)
         else
             validateCharacter(character, "characters." .. key, repaired)
+            validateJourney(character, "characters." .. key, repaired)
+            validateZoneStats(character, "characters." .. key, repaired)
+            validateAchievements(character, "characters." .. key, repaired)
         end
     end
 end
@@ -405,6 +649,9 @@ function Database.Load(raw)
     if db.legacy ~= nil and type(db.legacy) ~= "table" then
         db.legacy = nil
     end
+    if db.zoneDump ~= nil and type(db.zoneDump) ~= "table" then
+        db.zoneDump = nil
+    end
     return db, repaired
 end
 
@@ -430,4 +677,63 @@ function Database.Character(db, key, info)
         end
     end
     return character
+end
+
+---------------------------------------------------------------------------
+-- Settings / Data (v0.10.0)
+---------------------------------------------------------------------------
+
+-- Removes the saved history of another character. Screenshot files on
+-- disk are never touched (the addon cannot reach them).
+function Database.DeleteCharacter(db, key)
+    if type(key) ~= "string" or not db.characters[key] then
+        return false
+    end
+    db.characters[key] = nil
+    return true
+end
+
+-- Clears the history of a character in place (the table stays the same,
+-- so modules holding it keep working). Name, realm, class and GUID stay;
+-- tracking starts again at `now`.
+function Database.ClearCharacter(character, key, now)
+    local keep = {
+        name = character.name, realm = character.realm, class = character.class,
+        guid = character.guid, guild = character.guild,
+    }
+    for field in pairs(character) do
+        character[field] = nil
+    end
+    for field, value in pairs(newCharacter(key)) do
+        character[field] = value
+    end
+    for field, value in pairs(keep) do
+        character[field] = value
+    end
+    character.zonesSeeded = true -- the current zone is not a "new zone" shot
+    character.journey.started = now
+    character.steps.since = now
+    return character
+end
+
+-- Account totals for Settings / Data. Days are a union of the calendar
+-- days with playtime, steps or screenshots of any character.
+function Database.Storage(db)
+    local result = { characters = 0, shots = 0, days = 0 }
+    local days = {}
+    for _, character in pairs(db.characters) do
+        result.characters = result.characters + 1
+        result.shots = result.shots + #character.shots
+        for _, map in ipairs({ character.playtime.days, character.steps.days, character.shotsByDay }) do
+            for day, value in pairs(map) do
+                if value > 0 then
+                    days[day] = true
+                end
+            end
+        end
+    end
+    for _ in pairs(days) do
+        result.days = result.days + 1
+    end
+    return result
 end

@@ -25,6 +25,9 @@ Activity.TICK = 1     -- seconds between checks
 Activity.MAX_GAP = 5  -- longer gaps between ticks are not counted
 Activity.PLAYED_DELAY = 3    -- seconds after login before asking /played
 Activity.PLAYED_UNMUTE = 10  -- chat frames get the event back by then at the latest
+-- A login within this many seconds after the last tick of the previous
+-- one (a /reload, a short disconnect) continues the same session.
+Activity.SESSION_GAP = 180
 
 -- listener(activeSeconds, reason): reason is nil while playing,
 -- "loading" or "afk" otherwise (activeSeconds is 0 then).
@@ -62,6 +65,123 @@ function Activity.Add(seconds, t)
     local day = ns.Util.DayKey(t or API.Time())
     playtime.days[day] = (playtime.days[day] or 0) + seconds
     playtime.total = playtime.total + seconds
+    if playtime.session then
+        playtime.session.active = playtime.session.active + seconds
+    end
+end
+
+---------------------------------------------------------------------------
+-- Sessions (v0.9.0): one session = one stay in the game, a /reload does
+-- not end it. Its length is active play (AFK and loading excluded), the
+-- same seconds as Playtime. Sessions before 0.9.0 are unknown.
+---------------------------------------------------------------------------
+-- v0.12.0: a closed session is kept as playtime.lastSession for "Last
+-- adventure" on Home. Its end is the logout time when the game reported
+-- one (PLAYER_LOGOUT); after a crash only the last active moment is
+-- known, and it is marked so (endKnown = false), never presented as exact.
+local function counted(session, field)
+    return type(session[field]) == "number" and math.floor(session[field]) or nil
+end
+
+local function closeSession(playtime)
+    local session = playtime.session
+    if session and session.active > 0 then
+        playtime.sessions = playtime.sessions + 1
+        if session.active > playtime.longest then
+            playtime.longest = session.active
+            playtime.longestAt = session.start
+        end
+        local zones = 0
+        for _ in pairs(type(session.zones) == "table" and session.zones or {}) do
+            zones = zones + 1
+        end
+        playtime.lastSession = {
+            start = session.start, finish = session.ended or session.last, endKnown = session.ended ~= nil,
+            active = math.floor(session.active),
+            -- Counters exist only for sessions started with v0.12.0 or later.
+            shots = counted(session, "shots"), steps = counted(session, "steps"),
+            zones = session.zones and zones or nil, newZones = counted(session, "newZones"),
+            levels = counted(session, "levels"),
+        }
+    end
+    playtime.session = nil
+end
+
+function Activity.StartSession()
+    local playtime = data()
+    if not playtime then
+        return
+    end
+    local now = API.Time()
+    playtime.sinceDay = playtime.sinceDay or ns.Util.DayKey(now)
+    local session = playtime.session
+    if session and now - session.last <= Activity.SESSION_GAP and now >= session.last then
+        session.ended = nil -- a /reload, not a logout
+        return -- the same session goes on
+    end
+    closeSession(playtime)
+    playtime.session = { start = now, last = now, active = 0,
+        shots = 0, steps = 0, zones = {}, newZones = 0, levels = 0 }
+end
+
+-- The open session of the current character (counters of the recap).
+function Activity.Session()
+    local playtime = data()
+    return playtime and playtime.session
+end
+
+-- The last completed session of the current character, or nil.
+function Activity.LastSession()
+    local playtime = data()
+    return playtime and playtime.lastSession
+end
+
+-- Longest session and the day it started (nil when it is older than 0.12.0).
+function Activity.Longest()
+    local playtime = data()
+    if not playtime then
+        return 0, nil
+    end
+    local longest, at = playtime.longest, playtime.longestAt
+    local session = playtime.session
+    if session and session.active > longest then
+        longest, at = session.active, session.start
+    end
+    return math.floor(longest), at
+end
+
+-- Number of sessions and the longest one (seconds), the current included.
+function Activity.Sessions()
+    local playtime = data()
+    if not playtime then
+        return 0, 0
+    end
+    local count, longest = playtime.sessions, playtime.longest
+    local session = playtime.session
+    if session and session.active > 0 then
+        count = count + 1
+        longest = math.max(longest, session.active)
+    end
+    return count, math.floor(longest)
+end
+
+-- Days with recorded active play, their total and the average per day.
+function Activity.PlayedDays()
+    local playtime = data()
+    local days, total = 0, 0
+    for _, seconds in pairs(playtime and playtime.days or {}) do
+        if seconds > 0 then
+            days = days + 1
+            total = total + seconds
+        end
+    end
+    return days, math.floor(total), days > 0 and math.floor(total / days) or 0
+end
+
+-- First day the tracker counted (nil before the first login with it).
+function Activity.SinceDay()
+    local playtime = data()
+    return playtime and playtime.sinceDay
 end
 
 -- One check. `now` is GetTime().
@@ -73,6 +193,10 @@ function Activity.Tick(now)
     if not reason and dt > 0 and dt <= Activity.MAX_GAP then
         active = dt
         Activity.Add(active)
+    end
+    local playtime = data()
+    if playtime and playtime.session then
+        playtime.session.last = API.Time()
     end
     for i = 1, #Activity.listeners do
         ns.SafeCall("activity listener", Activity.listeners[i], active, reason)
@@ -112,7 +236,9 @@ end
 -- "game" (/played, since the character was created) or "addon" (our
 -- active playtime since v0.8.0, when the game did not answer).
 function Activity.Lifetime()
-    if played then
+    -- /played belongs to the logged-in character only (History may show
+    -- another one read-only, v0.12.0).
+    if played and ns.character == ns.db.characters[ns.characterKey] then
         return math.floor(played.total + math.max(0, API.Now() - played.at)), "game"
     end
     return Activity.Total(), "addon"
@@ -159,7 +285,16 @@ ns.On("PLAYER_LEAVING_WORLD", function()
     inWorld = false
     lastTickAt = nil
 end)
+-- Logout, quit or /reload: the moment is remembered as the possible end
+-- of the session; a login within SESSION_GAP clears it again (/reload).
+ns.On("PLAYER_LOGOUT", function()
+    local playtime = data()
+    if playtime and playtime.session then
+        playtime.session.ended = API.Time()
+    end
+end)
 
+table.insert(ns.onLogin, Activity.StartSession)
 table.insert(ns.onLogin, Activity.Start)
 table.insert(ns.onLogin, function()
     API.After(Activity.PLAYED_DELAY, function() ns.SafeCall("played", Activity.RequestPlayed) end)

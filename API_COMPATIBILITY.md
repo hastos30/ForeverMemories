@@ -130,6 +130,60 @@
 Если функции нет, событие неизвестно или пришёл secret — показывается собственное время
 активной игры аддона (с 0.8.0), в лог пишется предупреждение.
 
+## v0.9.0: каталог зон и дневник (в клиенте не проверено)
+
+Сверка каталога 2026-11-24 (ТЗ 7.6):
+
+| Источник | Что есть | Расхождения с ТЗ |
+|---|---|---|
+| thewowdb.com/wow-forever/zones/ | 51 зона: ВК 27, Калимдор 23, Zephras Isle 1; ID в адресах (ID AreaTable: Dun Morogh 1, Elwynn 12, … новые: Riverglades 16591, Zephras Isle 16593, Shen'dralas 16651, Ruins of Gilneas 16756) | нет |
+| theforeverera.com/en/map/ (сборка 1.60.1.71037) | 45 зон без столиц; «Other»: Zephras Isle, Gilneas | нет столиц в списке; «Gilneas» вместо «Ruins of Gilneas» |
+| foreverguide.net/tools/map/ | 42 зоны + 8 городов, Zephras Isle (Contested 1-12) | нет Ruins of Gilneas |
+
+Ни один источник не отмечает зоны как недоступные. Mount Hyjal и Riverglades «могут измениться после беты».
+
+| Функция | Зачем | Наличие | Проверка |
+|---|---|---|---|
+| `C_Map.GetAreaInfo(areaID)` | названия зон каталога на языке клиента | PENDING | `/fm zones` → `status client`, `missing in client: -` |
+| `C_Map.GetMapInfo(id).name` | имя карты для старых ключей `map:ID` | PASS (функция), имя PENDING | `/fm zones` → строка `here` |
+| `C_Map.GetBestMapForUnit` | ключ зоны | PASS | — |
+| `C_Map.GetMapChildrenInfo` | не используется (см. SPECIFICATION §12) | — | — |
+| `GetMaxPlayerLevel` | хроника: максимальный уровень | PASS | `/fm debug` → Diary `max level` |
+| `IsInInstance` | подземелье/рейд: босс, история посещений | PASS | зайти в подземелье |
+| `SetClipsChildren` | обрезка строк прокрутки | PENDING | строки не вылезают за область при прокрутке |
+| `EditBox` (`SetAutoFocus`, `SetTextInsets`, `OnTextChanged` с `userInput`) | поиск локаций | PENDING | ввод, Esc, Enter |
+| Текстуры `RaidFrame\ReadyCheck-Ready`, `COMMON\Indicator-Gray`, `INV_Crown_01`, `INV_Misc_Head_Dragon_01`, `INV_Misc_Book_09`, `Ability_Hunter_Pathfinding`, `INV_Misc_PocketWatch_02` | иконки | PENDING | нет зелёных квадратов |
+
+## v0.10.0: настройки, данные, горячие клавиши (в клиенте не проверено)
+
+| Функция / механизм | Зачем | Наличие | Проверка |
+|---|---|---|---|
+| `UpdateAddOnMemoryUsage`, `GetAddOnMemoryUsage(name)` | «Оперативная память» на странице Данные | PENDING | число в КБ или «Недоступно»; без функции аддон работает |
+| `LOCALIZED_CLASS_NAMES_MALE` | название класса в списке персонажей | PENDING | без таблицы — `Druid` из кода класса |
+| `EditBox:SetMultiLine`, `SetMaxLetters(0)`, `HighlightText`, `SetFocus`, Ctrl+C / Ctrl+V | экспорт, копия, импорт, ссылки | PENDING | копирование и вставка больших текстов |
+| `ScrollFrame:SetScrollChild`, `GetVerticalScrollRange`, `SetVerticalScroll` | прокрутка текста в окне копирования | PENDING | колесо мыши, курсор виден |
+| `StaticPopup` с `showAlert` и текстом с `%s` уже подставленным | подтверждения удаления и импорта | PENDING | имя персонажа в вопросе |
+| `FontString:GetStringHeight` (скрытая строка) | высота пунктов в «Обновлениях» | PENDING | текст не обрезается и не налезает |
+| Bindings.xml: `FOREVERMEMORIES_TOGGLE/SHOT/AUTOCAPTURE/CLEANSHOT`, `category="ADDONS"`, `BINDING_NAME_*` | горячие клавиши | PENDING | 4 строки в меню, без клавиш по умолчанию |
+
+Новых событий клиента нет. Аддон ничего не пишет на диск сам: всё копирует игрок; данные
+сохраняет клиент в SavedVariables при выходе или `/reload`.
+
+## v0.13.0: воспоминания и достижения (в клиенте не проверено)
+
+Новых функций и событий клиента нет: «В этот день», годовщины и достижения считаются из
+сохранённых данных. `Texture:SetAlpha` (бледные иконки невыполненных достижений) — PENDING;
+текстура `INV_Crown_01` (карточка годовщины) уже в списке v0.9.0.
+
+## v0.12.0: рекорды и сессии (в клиенте не проверено)
+
+| Функция / механизм | Зачем | Наличие | Проверка |
+|---|---|---|---|
+| Событие `PLAYER_LOGOUT` | время конца сессии для «Последнего приключения» | PENDING | выйти, войти: «Конец» = время выхода; `/reload` сессию не завершает |
+| `Frame:SetFrameLevel`, `GetFrameLevel` | панель подробностей сессии поверх Главной | PENDING | панель закрывает Главную, «Закрыть» работает |
+
+Других новых функций клиента нет: рекорды и итоги аккаунта считаются из сохранённых данных.
+
 ## v0.6.0: пассивная съёмка (в клиенте не проверено)
 
 | Функция | Зачем | Наличие | Поведение |

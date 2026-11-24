@@ -45,7 +45,7 @@ function Rules.Evaluate(event, settings, context)
         types = { event.type },
         keys = { event.key },
         infos = { event.info or false },
-        mode = settings.mode,
+        mode = (manual and event.mode) or settings.mode, -- hotkey "clean shot" (v0.10.0)
         priority = trigger.priority,
         createdAt = context.now,
         dueAt = context.now + trigger.delay,

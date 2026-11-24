@@ -12,16 +12,28 @@ ns.Events = Events
 
 local API = ns.API
 
+-- listener(kind, info) for every normalized event, photographed or not.
+Events.listeners = {}
+
 local function emit(kind, key, info)
     if not ns.characterKey then
         return
+    end
+    local zone = API.ZoneName()
+    -- Character Journey (v0.9.0) first: it works even when this event is
+    -- not photographed or auto capture is paused.
+    if ns.Journey then
+        ns.SafeCall("journey", ns.Journey.OnEvent, kind, info, zone)
+    end
+    for i = 1, #Events.listeners do -- v0.12.0: session recap (levels)
+        ns.SafeCall("event listener", Events.listeners[i], kind, info)
     end
     ns.Engine.Submit({
         type = kind,
         key = key,
         info = info,
         character = ns.characterKey,
-        zone = API.ZoneName(),
+        zone = zone,
     })
 end
 Events.Emit = emit

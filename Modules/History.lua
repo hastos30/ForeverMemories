@@ -117,6 +117,75 @@ function History.Rows()
 end
 
 ---------------------------------------------------------------------------
+-- Screenshot search (v0.11.0): metadata of registered shots only; the
+-- image files are never opened.
+--   filter = { text = "", type = "all" | event id | "MANUAL" | "PASSIVE",
+--              zone = name | nil, from = day | nil, to = day | nil,
+--              order = "new" | "old" }
+-- Returns the matching records in the chosen order.
+---------------------------------------------------------------------------
+local function searchText(record)
+    local parts = { History.Title(record), L["EVENT_" .. tostring(record.ev)] }
+    if type(record.zone) == "string" then parts[#parts + 1] = record.zone end
+    if type(record.info) == "string" or type(record.info) == "number" then
+        parts[#parts + 1] = tostring(record.info)
+    end
+    return ns.Util.Lower(table.concat(parts, "\n"))
+end
+
+function History.Matches(record, filter, query)
+    local kind = filter.type or "all"
+    if kind == "MANUAL" then
+        if not (record.manual or record.ev == "MANUAL") then return false end
+    elseif kind ~= "all" and record.ev ~= kind then
+        return false
+    end
+    if filter.zone and record.zone ~= filter.zone then
+        return false
+    end
+    if filter.from or filter.to then
+        local day = ns.Util.DayKey(record.t)
+        if (filter.from and day < filter.from) or (filter.to and day > filter.to) then
+            return false
+        end
+    end
+    if query and query ~= "" and not string.find(searchText(record), query, 1, true) then
+        return false
+    end
+    return true
+end
+
+function History.Search(filter)
+    local shots = ns.character and ns.character.shots or {}
+    local query = ns.Util.Lower(filter.text or "")
+    local result = {}
+    local first, last, step = #shots, 1, -1
+    if filter.order == "old" then
+        first, last, step = 1, #shots, 1
+    end
+    for i = first, last, step do
+        local record = shots[i]
+        if History.Matches(record, filter, query) then
+            result[#result + 1] = record
+        end
+    end
+    return result
+end
+
+-- Zones that appear in the shot history, sorted (location filter).
+function History.ShotZones()
+    local seen, list = {}, {}
+    for _, record in ipairs(ns.character and ns.character.shots or {}) do
+        if type(record.zone) == "string" and record.zone ~= "" and not seen[record.zone] then
+            seen[record.zone] = true
+            list[#list + 1] = record.zone
+        end
+    end
+    table.sort(list, function(a, b) return ns.Util.Lower(a) < ns.Util.Lower(b) end)
+    return list
+end
+
+---------------------------------------------------------------------------
 -- Text for a record (also used by notifications).
 ---------------------------------------------------------------------------
 

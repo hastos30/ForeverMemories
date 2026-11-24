@@ -294,6 +294,7 @@ end
 -- list frame serves every dropdown. Built from plain frames on purpose.
 ---------------------------------------------------------------------------
 local LIST_ROW_HEIGHT = 20
+local LIST_MAX_ROWS = 14 -- longer lists scroll with the mouse wheel (v0.11.0)
 local list
 
 local function closeList()
@@ -352,13 +353,12 @@ local function listRow(i)
     return row
 end
 
-local function openList(owner, options, current)
-    list = list or createList()
-    if list:IsShown() and list.owner == owner then
-        return closeList()
-    end
-    local width = owner:GetWidth()
-    for i, option in ipairs(options) do
+local function drawList()
+    local options, current, width = list.options, list.current, list.width
+    local shown = math.min(#options, LIST_MAX_ROWS)
+    list.offset = math.max(0, math.min(list.offset or 0, #options - shown))
+    for i = 1, shown do
+        local option = options[list.offset + i]
         local row = listRow(i)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", list, "TOPLEFT", 2, -2 - (i - 1) * LIST_ROW_HEIGHT)
@@ -369,10 +369,32 @@ local function openList(owner, options, current)
         row.text:SetTextColor(c[1], c[2], c[3])
         row:Show()
     end
-    for i = #options + 1, #list.rows do
+    for i = shown + 1, #list.rows do
         list.rows[i]:Hide()
     end
-    list:SetSize(width, #options * LIST_ROW_HEIGHT + 4)
+    return shown
+end
+
+local function openList(owner, options, current)
+    list = list or createList()
+    if list:IsShown() and list.owner == owner then
+        return closeList()
+    end
+    local width = owner:GetWidth()
+    list.options, list.current, list.width, list.offset = options, current, width, 0
+    -- Start with the chosen option in view.
+    for i, option in ipairs(options) do
+        if option.value == current and i > LIST_MAX_ROWS then
+            list.offset = i - LIST_MAX_ROWS
+        end
+    end
+    local shown = drawList()
+    list:EnableMouseWheel(true)
+    list:SetScript("OnMouseWheel", function(_, delta)
+        list.offset = (list.offset or 0) - delta * 3
+        drawList()
+    end)
+    list:SetSize(width, shown * LIST_ROW_HEIGHT + 4)
     list:SetScale(owner:GetEffectiveScale() / UIParent:GetEffectiveScale())
     list:ClearAllPoints()
     list:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, -2)
@@ -524,4 +546,176 @@ function W.ScrollList(parent, width, height, rowHeight, makeRow, fillRow)
     box:SetScript("OnMouseWheel", function(self, delta) self:Scroll(delta) end)
     box.rows = rows
     return box
+end
+
+---------------------------------------------------------------------------
+-- Scrolling list with rows of different kinds and heights (v0.9.0): one
+-- scroll area for a whole History sub-view (charts, panels, rows), no
+-- nested scrolling. Only the visible items get a frame; frames are reused
+-- per kind.
+--   kinds[kind] = { height = n, make = fn(parent) -> frame,
+--                   fill = fn(frame, item) }   item.height overrides height
+---------------------------------------------------------------------------
+W.SCROLL_STEP = 40
+
+function W.FlexList(parent, width, height, kinds)
+    local box = CreateFrame("Frame", nil, parent)
+    box:SetSize(width, height)
+    box:EnableMouseWheel(true)
+    local clips = box.SetClipsChildren ~= nil
+    if clips then
+        box:SetClipsChildren(true)
+    end
+    local items, tops, total, scroll = {}, {}, 0, 0
+    local pools = {}
+    local c = W.COLORS
+    local bar = box:CreateTexture(nil, "OVERLAY")
+    bar:SetColorTexture(c.gold[1], c.gold[2], c.gold[3], 0.6)
+    bar:SetWidth(3)
+
+    local function heightOf(item)
+        return item.height or kinds[item.kind].height
+    end
+    local function maxScroll()
+        return math.max(0, total - height)
+    end
+    local function take(kind)
+        local pool = pools[kind]
+        if not pool then
+            pool = { frames = {}, used = 0 }
+            pools[kind] = pool
+        end
+        pool.used = pool.used + 1
+        local frame = pool.frames[pool.used]
+        if not frame then
+            frame = kinds[kind].make(box)
+            pool.frames[pool.used] = frame
+        end
+        return frame
+    end
+
+    function box:Redraw()
+        scroll = ns.Util.Clamp(scroll, 0, maxScroll(), 0)
+        for _, pool in pairs(pools) do
+            pool.used = 0
+        end
+        for i, item in ipairs(items) do
+            local top, h = tops[i] - scroll, heightOf(item)
+            local visible = top + h > 0 and top < height
+            if not clips then
+                visible = top >= 0 and top + h <= height + 1 -- no clipping: whole items only
+            end
+            if visible then
+                local frame = take(item.kind)
+                frame:ClearAllPoints()
+                frame:SetPoint("TOPLEFT", box, "TOPLEFT", 0, -top)
+                frame:SetSize(width - 8, h)
+                kinds[item.kind].fill(frame, item)
+                frame:Show()
+            end
+        end
+        for _, pool in pairs(pools) do
+            for i = pool.used + 1, #pool.frames do
+                pool.frames[i]:Hide()
+            end
+        end
+        if maxScroll() > 0 then
+            local barHeight = math.max(20, height * height / total)
+            bar:SetHeight(barHeight)
+            bar:ClearAllPoints()
+            bar:SetPoint("TOPRIGHT", box, "TOPRIGHT", 0, -(height - barHeight) * scroll / maxScroll())
+            bar:Show()
+        else
+            bar:Hide()
+        end
+    end
+    function box:SetItems(newItems, keepScroll)
+        items = newItems or {}
+        total = 0
+        for i, item in ipairs(items) do
+            tops[i] = total
+            total = total + heightOf(item)
+        end
+        if not keepScroll then
+            scroll = 0
+        end
+        self:Redraw()
+    end
+    -- Scrolls so that the first item for which `match(item)` is true is on top.
+    function box:ScrollTo(match)
+        for i, item in ipairs(items) do
+            if match(item) then
+                scroll = tops[i]
+                self:Redraw()
+                return true
+            end
+        end
+        return false
+    end
+    function box:Scroll(delta)
+        scroll = scroll - delta * W.SCROLL_STEP
+        self:Redraw()
+    end
+    function box:Offset()
+        return scroll
+    end
+    box:SetScript("OnMouseWheel", function(self, delta) self:Scroll(delta) end)
+    box.items = function() return items end
+    return box
+end
+
+-- Text field for search: dark box, gold border on focus, a grey hint while
+-- empty. onChange(text) is called for typing only.
+function W.SearchBox(parent, hint, width, onChange)
+    local edit = CreateFrame("EditBox", nil, parent, "BackdropTemplate")
+    edit:SetSize(width or 200, 28)
+    edit:SetAutoFocus(false)
+    edit:SetFontObject("GameFontHighlight")
+    edit:SetTextInsets(12, 12, 0, 0)
+    edit:SetMaxLetters(40)
+    W.Backdrop(edit, W.COLORS.background, 0.95, W.COLORS.divider)
+    local placeholder = W.Text(edit, hint, "GameFontHighlight", W.COLORS.muted)
+    placeholder:SetPoint("LEFT", 12, 0)
+    local function paint(focused)
+        local b = focused and W.COLORS.gold or W.COLORS.divider
+        edit:SetBackdropBorderColor(b[1], b[2], b[3], 1)
+    end
+    edit:SetScript("OnEditFocusGained", function() paint(true) end)
+    edit:SetScript("OnEditFocusLost", function() paint(false) end)
+    edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    edit:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    edit:SetScript("OnTextChanged", function(self, userInput)
+        local text = self:GetText() or ""
+        placeholder:SetShown(text == "")
+        if userInput then
+            ns.SafeCall("search", onChange, text)
+        end
+    end)
+    return edit
+end
+
+-- A row of small pill buttons, one selected: "Week | Month", "7 | 30".
+-- options = { { value, text }, ... }; onSelect(value).
+function W.Segmented(parent, options, width, onSelect)
+    local holder = CreateFrame("Frame", nil, parent)
+    local each = (width or 160) / #options
+    holder:SetSize(width or 160, 24)
+    local buttons = {}
+    for i, option in ipairs(options) do
+        local button = W.Button(holder, option[2], each - 4, 22, function()
+            holder:SetValue(option[1])
+            ns.SafeCall("segment", onSelect, option[1])
+        end)
+        button:SetPoint("LEFT", (i - 1) * each, 0)
+        button.value = option[1]
+        buttons[i] = button
+    end
+    function holder:SetValue(value)
+        self.value = value
+        for _, button in ipairs(buttons) do
+            button:SetSelected(button.value == value)
+        end
+    end
+    holder.buttons = buttons
+    return holder
 end

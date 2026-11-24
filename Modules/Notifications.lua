@@ -8,7 +8,10 @@ local _, ns = ...
 local Notifications = {}
 ns.Notifications = Notifications
 
-Notifications.DURATION = 3
+-- Seconds on screen: the "toastDuration" setting (3, 5 or 10; v0.10.0).
+function Notifications.Duration()
+    return ns.db and ns.db.settings.toastDuration or 5
+end
 
 local L = ns.L
 local frame, title, line
@@ -43,8 +46,9 @@ function Notifications.HideNow()
     end
 end
 
-function Notifications.Show(heading, text)
-    if not ns.db.settings.notifications then
+-- `force` shows it even with notifications off ("Test notification").
+function Notifications.Show(heading, text, force)
+    if not ns.db.settings.notifications and not force then
         return
     end
     ensureFrame()
@@ -53,11 +57,20 @@ function Notifications.Show(heading, text)
     frame:Show()
     hideToken = hideToken + 1
     local myToken = hideToken
-    ns.API.After(Notifications.DURATION, function()
+    ns.API.After(Notifications.Duration(), function()
         if myToken == hideToken then
             frame:Hide()
         end
     end)
+end
+
+-- Settings / General: "Test notification" with the current duration and
+-- sound. Nothing is saved and no screenshot is taken.
+function Notifications.Test()
+    Notifications.Show(L.SHOT_SAVED, L.TEST_NOTIFICATION_TEXT, true)
+    if ns.db.settings.sound then
+        ns.API.PlaySuccessSound()
+    end
 end
 
 -- Called by the Engine for every finished request.

@@ -113,9 +113,14 @@ function Mock.new(options)
     _G.GetNumShapeshiftForms = function() return env.forms end
     _G.GetCursorPosition = function() return 600, 400 end
     _G.Enum = { UIMapType = { Zone = 3 } }
+    -- Zone names of the fake client: uiMap names and AreaTable names
+    -- (tests fill env.areaNames; options.noAreaInfo removes the function).
+    env.mapNames = { [37] = "Elwynn Forest", [52] = "Westfall", [1429] = "Elwynn Forest", [291] = "The Deadmines" }
+    env.areaNames = {}
     _G.C_Map = {
         GetBestMapForUnit = function() return env.mapID end,
-        GetMapInfo = function(id) return { mapType = 3, parentMapID = 0 } end,
+        GetMapInfo = function(id) return { mapType = 3, parentMapID = 0, name = env.mapNames[id] } end,
+        GetAreaInfo = not options.noAreaInfo and function(id) return env.areaNames[id] end or nil,
         GetPlayerMapPosition = function()
             return { GetXY = function() return env.position[1], env.position[2] end }
         end,

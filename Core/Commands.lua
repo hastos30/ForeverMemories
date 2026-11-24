@@ -7,6 +7,7 @@
 --   /fm status        short state in chat
 --   /fm debug         diagnostics: client, API, events, step tracker, passive timer
 --   /fm log           last 20 log lines
+--   /fm zones         zone catalog as the client sees it (also saved for /reload)
 --   /fm ui            show the game interface again (emergency)
 --   /fm reset         window back to the center
 local _, ns = ...
@@ -21,7 +22,7 @@ local PROBE_FUNCTIONS = {
     "C_Map.GetWorldPosFromMapPos", "UnitPosition", "GetUnitSpeed", "IsSwimming", "IsFlying",
     "UnitOnTaxi", "UnitInVehicle", "UnitIsAFK", "UnitGUID", "IsInInstance", "issecretvalue",
     "C_EventUtils.IsEventValid", "C_Item.GetItemQualityByID", "IsInGuild", "GetGuildInfo",
-    "RequestTimePlayed",
+    "RequestTimePlayed", "C_Map.GetAreaInfo", "GetMaxPlayerLevel",
 }
 
 local commands = {}
@@ -89,6 +90,22 @@ function commands.debug()
     local character = ns.character
     Print(string.format("Character: %s, GUID %s%s, guild %s", ns.characterKey, tostring(character.guid),
         character.guidChanged and " (changed!)" or "", tostring(character.guild)))
+    local sessions, longest = ns.Activity.Sessions()
+    local explorer = ns.ZoneCatalog.Explorer()
+    Print(string.format("Diary: sessions %d, longest %ds, since %s, journey %d, catalog %s %d/%d, max level %s",
+        sessions, longest, tostring(ns.Activity.SinceDay()), #character.journey.events, explorer.status,
+        explorer.visited, explorer.total, tostring(ns.API.MaxLevel())))
+end
+
+-- Zone catalog check (v0.9.0): every catalog area with the client's name,
+-- what is missing and how the current zone maps. Saved in
+-- ForeverMemoriesDB.zoneDump, so the file can be sent after /reload.
+function commands.zones()
+    local lines = ns.ZoneCatalog.Dump()
+    for _, line in ipairs(lines) do
+        Print(line)
+    end
+    ns.db.zoneDump = { at = date("%Y-%m-%d %H:%M"), lines = lines }
 end
 
 function commands.log()
@@ -110,7 +127,7 @@ function commands.reset()
 end
 
 function commands.help()
-    Print("/fm  |  on  off  toggle  |  shot  |  status  debug  log  |  ui  reset")
+    Print("/fm  |  on  off  toggle  |  shot  |  status  debug  log  zones  |  ui  reset")
 end
 
 SLASH_FOREVERMEMORIES1 = "/fm"
@@ -136,16 +153,32 @@ SlashCmdList.FOREVERMEMORIES = function(message)
 end
 
 -- Key bindings (Bindings.xml is loaded by the client and must NOT be
--- listed in the TOC).
+-- listed in the TOC). No default keys (v0.10.0): the player assigns them
+-- in the game's Key Bindings menu, AddOns section.
 BINDING_HEADER_FOREVERMEMORIES = "ForeverMemories"
 table.insert(ns.onReady, function()
-    BINDING_NAME_FOREVERMEMORIES_SHOT = L.TAKE_SHOT
-    BINDING_NAME_FOREVERMEMORIES_TOGGLE = L.TOGGLE_WINDOW
+    BINDING_NAME_FOREVERMEMORIES_TOGGLE = L.BINDING_TOGGLE
+    BINDING_NAME_FOREVERMEMORIES_SHOT = L.BINDING_SHOT
+    BINDING_NAME_FOREVERMEMORIES_AUTOCAPTURE = L.BINDING_AUTOCAPTURE
+    BINDING_NAME_FOREVERMEMORIES_CLEANSHOT = L.BINDING_CLEANSHOT
 end)
 
 function ForeverMemories_ManualShot()
     if ns.db and ns.characterKey then
         ns.Engine.ManualShot()
+    end
+end
+
+-- Same safe pipeline; in combat it becomes a normal shot.
+function ForeverMemories_CleanShot()
+    if ns.db and ns.characterKey then
+        ns.Engine.ManualShot("clean")
+    end
+end
+
+function ForeverMemories_ToggleAutoCapture()
+    if ns.db and ns.characterKey then
+        commands.toggle()
     end
 end
 

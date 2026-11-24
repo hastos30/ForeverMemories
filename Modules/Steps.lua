@@ -31,6 +31,7 @@ Steps.MAX_GAP = 2 * Steps.TICK -- longer gaps (hitch, loading) are not counted
 Steps.MAX_ERRORS = 10          -- the tracker stops after this many errors
 
 Steps.listeners = {}           -- called when today's whole number changes
+Steps.onAdd = {}               -- called with every counted amount (v0.11.0: steps per zone)
 
 local API = ns.API
 local ticker
@@ -61,6 +62,9 @@ function Steps.Add(amount, t)
     steps.days[day] = (steps.days[day] or 0) + amount
     steps.total = steps.total + amount
     steps.since = steps.since or (t or API.Time())
+    for i = 1, #Steps.onAdd do
+        ns.SafeCall("steps onAdd", Steps.onAdd[i], amount)
+    end
     if math.floor(steps.days[day]) ~= before then
         for _, listener in ipairs(Steps.listeners) do
             ns.SafeCall("steps listener", listener)

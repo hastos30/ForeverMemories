@@ -3,14 +3,21 @@
 -- (character.visited, kept since 0.4.2, also used by the "New zone"
 -- event) and a per-day log of visits for Home and History:
 --   character.locations.days["2026-11-24"][zoneKey] =
---       { name = "Duskwood", t = last arrival (Unix time), first = true|nil }
+--       { name = "Duskwood", t = first arrival that day (Unix time; until
+--         0.9.0 the last arrival), first = true|nil, instance = "party"|... }
 -- `first` marks the very first visit of this character to the zone.
+-- Dungeons, raids, battlegrounds (v0.9.0) get an "inst:<name>" entry in
+-- the day log only: they are not open-world zones, so they never count as
+-- visited zones nor trigger the "New zone" shot.
 -- A zone is recorded at login, on every zone change, and again after
 -- local midnight, so the zone you stand in counts for the new day too.
 local _, ns = ...
 
 local Locations = {}
 ns.Locations = Locations
+
+-- listener(zoneKey, isNew) after every recorded open-world zone.
+Locations.listeners = {}
 
 local API = ns.API
 local lastDay
@@ -24,8 +31,27 @@ end
 -- first visit of this character (a new memory for the "New zone" event).
 function Locations.Visit()
     local character = ns.character
+    if not character then
+        return nil
+    end
+    local now = API.Time()
+    local today = ns.Util.DayKey(now)
+    local instance = API.InstanceType()
+    if instance and instance ~= "none" then
+        ns.ZoneStats.Leave()
+        local name = API.ZoneName()
+        if name then
+            lastDay = today
+            local log = days()
+            log[today] = log[today] or {}
+            local key = "inst:" .. name
+            log[today][key] = log[today][key] or { name = name, t = now, instance = instance }
+        end
+        return nil
+    end
     local key = API.ZoneKey()
-    if not character or not key then
+    if not key then
+        ns.ZoneStats.Leave() -- unknown place: nothing is counted
         return nil
     end
     local isNew = not character.visited[key]
@@ -35,16 +61,19 @@ function Locations.Visit()
         character.zonesSeeded = true
         isNew = false
     end
-    local now = API.Time()
-    local today = ns.Util.DayKey(now)
+    character.visitedAt[key] = character.visitedAt[key] or now
     lastDay = today
     local log = days()
     log[today] = log[today] or {}
     local entry = log[today][key] or {}
     entry.name = API.ZoneName() or entry.name or key
-    entry.t = now
+    entry.t = entry.t or now -- one record per zone and day: first arrival
     entry.first = entry.first or (isNew or nil)
     log[today][key] = entry
+    ns.ZoneStats.Enter(key, now)
+    for i = 1, #Locations.listeners do -- v0.12.0: session recap
+        ns.SafeCall("location listener", Locations.listeners[i], key, isNew)
+    end
     return key, isNew
 end
 
@@ -60,6 +89,12 @@ end
 
 function Locations.Today()
     return Locations.OnDay(ns.Util.DayKey(API.Time()))
+end
+
+-- Zone keys and entries of a day: { [key] = entry } (empty table if none).
+function Locations.Day(day)
+    local log = days()
+    return log and log[day] or {}
 end
 
 -- Different zones this character has ever visited.

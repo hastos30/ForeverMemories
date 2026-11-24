@@ -81,6 +81,50 @@ function Util.DayBefore(key, offset)
     return Util.DayKey(time(d))
 end
 
+-- Day of the week of a day key, Monday = 1 ... Sunday = 7.
+function Util.Weekday(key)
+    local wday = date("*t", Util.DayStart(key) + 12 * 3600).wday -- 1 = Sunday
+    return (wday + 5) % 7 + 1
+end
+
+-- "25.11.2026" (also "25.11.26", "2026-11-25") -> "2026-11-25", or nil
+-- for anything that is not a real date (v0.11.0: date filter).
+function Util.ParseDate(text)
+    text = string.gsub(tostring(text or ""), "%s", "")
+    local d, m, y = string.match(text, "^(%d%d?)[%./](%d%d?)[%./](%d%d%d?%d?)$")
+    if not d then
+        y, m, d = string.match(text, "^(%d%d%d%d)%-(%d%d?)%-(%d%d?)$")
+    end
+    d, m, y = tonumber(d), tonumber(m), tonumber(y)
+    if not d then
+        return nil
+    end
+    if y < 100 then
+        y = y + 2000
+    end
+    if m < 1 or m > 12 or d < 1 or d > 31 or y < 2000 or y > 2100 then
+        return nil
+    end
+    local t = time({ year = y, month = m, day = d, hour = 12 })
+    local check = date("*t", t)
+    if check.day ~= d or check.month ~= m then
+        return nil -- 31.02 and the like
+    end
+    return string.format("%04d-%02d-%02d", y, m, d)
+end
+
+-- Lower case for search, also for Russian letters (UTF-8 А-Я, Ё).
+function Util.Lower(text)
+    text = string.lower(tostring(text or ""))
+    text = string.gsub(text, "\208([\144-\159])", function(c)
+        return "\208" .. string.char(string.byte(c) + 32)
+    end)
+    text = string.gsub(text, "\208([\160-\175])", function(c)
+        return "\209" .. string.char(string.byte(c) - 32)
+    end)
+    return (string.gsub(text, "\208\129", "\209\145"))
+end
+
 -- Whole number with a thousands separator: 1245872 -> "1 245 872".
 -- Fractions are cut, not rounded: 0.9 steps is still 0 steps.
 function Util.FormatNumber(value, separator)

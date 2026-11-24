@@ -1,8 +1,14 @@
 <Bindings>
-	<Binding name="FOREVERMEMORIES_SHOT" header="FOREVERMEMORIES" category="ADDONS">
+	<Binding name="FOREVERMEMORIES_TOGGLE" header="FOREVERMEMORIES" category="ADDONS">
+		ForeverMemories_ToggleWindow()
+	</Binding>
+	<Binding name="FOREVERMEMORIES_SHOT" category="ADDONS">
 		ForeverMemories_ManualShot()
 	</Binding>
-	<Binding name="FOREVERMEMORIES_TOGGLE" category="ADDONS">
-		ForeverMemories_ToggleWindow()
+	<Binding name="FOREVERMEMORIES_AUTOCAPTURE" category="ADDONS">
+		ForeverMemories_ToggleAutoCapture()
+	</Binding>
+	<Binding name="FOREVERMEMORIES_CLEANSHOT" category="ADDONS">
+		ForeverMemories_CleanShot()
 	</Binding>
 </Bindings>

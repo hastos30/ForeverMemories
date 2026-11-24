@@ -17,7 +17,7 @@ UI.TABS = { "home", "capture", "history", "settings" }
 UI.builders = {}
 
 local window, content
-local statusDot, statusText, pauseButton
+local statusDot, statusText, pauseButton, whatsNew
 local tabs, navButtons = {}, {}
 local currentTab
 
@@ -80,7 +80,7 @@ local function refreshHeader()
     pauseButton:SetLabel(enabled and "||||" or ">")
 end
 
-function UI.ShowTab(id, option)
+function UI.ShowTab(id, option, extra)
     if not tabs[id] then
         local frame = CreateFrame("Frame", nil, content)
         frame:SetAllPoints(content)
@@ -94,14 +94,24 @@ function UI.ShowTab(id, option)
     for tabId, button in pairs(navButtons) do
         button:SetSelected(tabId == id)
     end
+    local switching = currentTab ~= id
     currentTab = id
+    ns.db.ui.lastTab = id -- "Remember the last tab" (v0.10.0)
     local view = tabs[id].view
+    if switching and view.Reset then
+        ns.SafeCall("tab " .. id, view.Reset)
+    end
     if option and view.Select then
-        ns.SafeCall("tab " .. id, view.Select, option)
+        ns.SafeCall("tab " .. id, view.Select, option, extra)
     end
     if view.Refresh then
         ns.SafeCall("tab " .. id, view.Refresh)
     end
+end
+
+-- The view object of a built tab (tests and cross-tab links).
+function UI.TabView(id)
+    return tabs[id] and tabs[id].view
 end
 
 function UI.CurrentTab()
@@ -198,11 +208,20 @@ local function build()
     local tabWidth = (UI.CONTENT_WIDTH - gap * (#UI.TABS - 1)) / #UI.TABS
     for i, id in ipairs(UI.TABS) do
         local button = W.Button(window, L["TAB_" .. id], tabWidth, 28, function()
-            UI.ShowTab(id, id == "history" and "shots" or nil) -- History opens on "Shots"
+            UI.ShowTab(id, id == "history" and "overview" or nil) -- History opens on "Overview"
         end)
         button:SetPoint("TOPLEFT", pad + (i - 1) * (tabWidth + gap), -68)
         navButtons[id] = button
     end
+    -- "What's new" (v0.10.0): a small gold dot on Settings after an update,
+    -- until Settings / Changelog is opened. No popup.
+    whatsNew = W.Dot(navButtons.settings)
+    whatsNew:SetColor(W.COLORS.heading)
+    whatsNew:SetPoint("TOPRIGHT", -6, -6)
+    W.Tooltip(navButtons.settings, function()
+        return whatsNew:IsShown() and string.format(L.WHATS_NEW_TIP, ns.version) or nil
+    end, L.WHATS_NEW)
+    UI.RefreshWhatsNew()
 
     content = CreateFrame("Frame", nil, window)
     content:SetPoint("TOPLEFT", pad, -108)
@@ -219,12 +238,40 @@ local function build()
     version:SetJustifyH("RIGHT")
 
     window:SetScript("OnShow", function()
+        local view = currentTab and tabs[currentTab].view
+        if view and view.Reset then
+            ns.SafeCall("tab " .. currentTab, view.Reset)
+        end
         UI.ApplyScale()
         UI.Refresh()
     end)
     restorePosition()
     UI.ApplyScale()
-    UI.ShowTab("home")
+    UI.ShowTab(UI.StartTab())
+end
+
+-- Tab shown when the window opens without a request for a tab.
+function UI.StartTab()
+    local last = ns.db.ui.lastTab
+    if ns.db.settings.rememberTab and ns.Util.Contains(UI.TABS, last) then
+        return last
+    end
+    return "home"
+end
+
+function UI.WhatsNew()
+    return ns.db.ui.seenVersion ~= ns.version
+end
+
+function UI.RefreshWhatsNew()
+    if whatsNew then
+        whatsNew:SetShown(UI.WhatsNew())
+    end
+end
+
+function UI.MarkChangelogSeen()
+    ns.db.ui.seenVersion = ns.version
+    UI.RefreshWhatsNew()
 end
 
 function UI.Toggle(tab, option)
@@ -237,9 +284,12 @@ function UI.Toggle(tab, option)
     if window:IsShown() and not tab then
         window:Hide()
     else
+        local wasShown = window:IsShown()
         window:Show()
         if tab then
             UI.ShowTab(tab, option)
+        elseif not wasShown and not ns.db.settings.rememberTab and currentTab ~= "home" then
+            UI.ShowTab("home")
         end
         UI.Refresh()
     end
@@ -258,6 +308,15 @@ table.insert(ns.History.listeners, UI.Refresh)
 table.insert(ns.Engine.stateListeners, UI.Refresh)
 table.insert(ns.Steps.listeners, UI.RefreshSteps)
 table.insert(ns.Activity.listeners, UI.RefreshClock) -- no own timer
+table.insert(ns.Journey.listeners, UI.Refresh)
+table.insert(ns.DataTools.listeners, UI.Refresh)
+
+-- A fresh install has nothing new to show; an update shows the dot.
+table.insert(ns.onReady, function()
+    if ns.db.ui.seenVersion == nil and next(ns.db.characters) == nil then
+        ns.db.ui.seenVersion = ns.version
+    end
+end)
 
 -- Asks before reloading the interface. The setting is already saved:
 -- "Later" keeps it, and it applies at the next /reload or login.
@@ -324,9 +383,9 @@ end
 local CARD_HEIGHT = 80
 local CARD_GAP = 8
 
-function UI.StatCard(parent, icon, label, tip)
+function UI.StatCard(parent, icon, label, tip, width)
     local card = W.Panel(parent, W.COLORS.panel, W.COLORS.divider)
-    card:SetSize((UI.CONTENT_WIDTH - CARD_GAP) / 2, CARD_HEIGHT)
+    card:SetSize(((width or UI.CONTENT_WIDTH) - CARD_GAP) / 2, CARD_HEIGHT)
     local image = W.Icon(card, icon, 18)
     image:SetPoint("TOP", 0, -9)
     card.value = W.Text(card, "0", "GameFontNormalHuge", W.COLORS.heading)
@@ -335,6 +394,7 @@ function UI.StatCard(parent, icon, label, tip)
     local caption = W.Text(card, label, "GameFontHighlightSmall", W.COLORS.muted)
     caption:SetPoint("BOTTOM", 0, 8)
     caption:SetJustifyH("CENTER")
+    card.caption = caption
     W.Tooltip(card, tip, label)
     return card
 end
@@ -342,10 +402,11 @@ end
 -- Four cards in a 2 x 2 grid starting `top` pixels below the parent's top.
 -- `specs` = { { id, icon, label, tip }, ... } in reading order.
 -- Returns the cards by id and the y offset right below the grid.
-function UI.Dashboard(parent, top, specs)
+-- `width` (optional) is the width of the grid, the content width by default.
+function UI.Dashboard(parent, top, specs, width)
     local cards = {}
     for i, spec in ipairs(specs) do
-        local card = UI.StatCard(parent, spec[2], spec[3], spec[4])
+        local card = UI.StatCard(parent, spec[2], spec[3], spec[4], width)
         local row = math.floor((i - 1) / 2)
         card:SetPoint(i % 2 == 1 and "TOPLEFT" or "TOPRIGHT", 0, -top - row * (CARD_HEIGHT + CARD_GAP))
         cards[spec[1]] = card
@@ -362,9 +423,17 @@ function UI.CharacterHeader(parent, captionText)
     name:SetPoint("TOPLEFT", portrait, "TOPRIGHT", 10, -2)
     local caption = W.Text(parent, captionText, "GameFontHighlightSmall", W.COLORS.muted)
     caption:SetPoint("BOTTOMLEFT", portrait, "BOTTOMRIGHT", 10, 2)
-    return function()
-        UI.SetClassIcon(portrait)
-        name:SetText(ns.character and ns.character.name or "?")
+    -- refresh([caption], [title, icon]): the current (or viewed) character,
+    -- or a title with an icon (History / All characters).
+    return function(text, title, icon)
+        if icon then
+            portrait:SetTexture(icon)
+            portrait:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        else
+            UI.SetClassIcon(portrait)
+        end
+        name:SetText(title or (ns.character and ns.character.name) or "?")
+        caption:SetText(text or captionText)
     end
 end
 
@@ -387,6 +456,72 @@ end
 function UI.FormatCountdown(seconds)
     seconds = math.max(0, math.ceil(seconds or 0))
     return string.format("%02d:%02d", math.floor(seconds / 60), seconds % 60)
+end
+
+---------------------------------------------------------------------------
+-- Details of a session (Home / Last adventure, v0.12.0): a panel over the
+-- tab. Counters missing for sessions older than 0.12.0 say "no data"; an
+-- end that the game did not report (a crash) is shown as the last active
+-- moment and marked, never as an exact end.
+---------------------------------------------------------------------------
+local SESSION_ROWS = {
+    { "start", "SESSION_START" }, { "finish", "SESSION_END" }, { "active", "SESSION_ACTIVE" },
+    { "shots", "RECAP_SHOTS" }, { "steps", "RECAP_STEPS" }, { "zones", "RECAP_ZONES" },
+    { "newZones", "RECAP_NEW_ZONES" }, { "levels", "SESSION_LEVELS" },
+}
+
+function UI.SessionDetails(parent)
+    local panel = W.Panel(parent, W.COLORS.background, W.COLORS.gold)
+    panel:SetPoint("TOPLEFT", 0, -46)
+    panel:SetPoint("BOTTOMRIGHT", 0, 0)
+    panel:SetFrameLevel((parent:GetFrameLevel() or 0) + 20)
+    panel:EnableMouse(true)
+    panel:Hide()
+    local title = W.Text(panel, L.LAST_ADVENTURE, "GameFontNormalLarge", W.COLORS.heading)
+    title:SetPoint("TOPLEFT", 16, -16)
+    local close = W.Link(panel, L.CLOSE, function() panel:Hide() end)
+    close:SetPoint("TOPRIGHT", -16, -18)
+    local rows = {}
+    for i, spec in ipairs(SESSION_ROWS) do
+        local label = W.Text(panel, L[spec[2]], "GameFontHighlight", W.COLORS.text)
+        label:SetPoint("TOPLEFT", 16, -56 - (i - 1) * 30)
+        local value = W.Text(panel, "", "GameFontNormal", W.COLORS.heading)
+        value:SetPoint("TOPRIGHT", -16, -56 - (i - 1) * 30)
+        value:SetJustifyH("RIGHT")
+        local line = W.Divider(panel)
+        line:SetPoint("TOPLEFT", 16, -78 - (i - 1) * 30)
+        line:SetPoint("TOPRIGHT", -16, -78 - (i - 1) * 30)
+        rows[spec[1]] = { label = label, value = value }
+    end
+    local note = W.Text(panel, "", "GameFontHighlightSmall", W.COLORS.muted)
+    note:SetPoint("TOPLEFT", 16, -64 - #SESSION_ROWS * 30)
+    note:SetPoint("RIGHT", panel, "RIGHT", -16, 0)
+
+    function panel:ShowSession(s)
+        local function count(v) return v and ns.Num(v) or L.NO_DATA end
+        local texts = {
+            start = date("%d.%m.%Y %H:%M", s.start),
+            finish = s.finish and date("%d.%m.%Y %H:%M", s.finish) or L.NO_DATA,
+            active = UI.FormatDuration(s.active),
+            shots = count(s.shots), steps = count(s.steps), zones = count(s.zones),
+            newZones = count(s.newZones), levels = count(s.levels),
+        }
+        for id, row in pairs(rows) do
+            row.value:SetText(texts[id])
+        end
+        rows.finish.label:SetText(s.endKnown and L.SESSION_END or L.SESSION_LAST_ACTIVE)
+        local notes = {}
+        if not s.endKnown then
+            notes[#notes + 1] = L.SESSION_END_UNKNOWN
+        end
+        if not s.shots then
+            notes[#notes + 1] = L.SESSION_OLD
+        end
+        notes[#notes + 1] = L.SESSION_NOTE
+        note:SetText(table.concat(notes, " "))
+        self:Show()
+    end
+    return panel
 end
 
 ---------------------------------------------------------------------------
@@ -467,6 +602,78 @@ UI.builders.home = function(parent)
     end
     local empty = W.Text(parent, L.NO_SHOTS_TODAY, "GameFontHighlight", W.COLORS.muted)
     empty:SetPoint("TOPLEFT", 0, -(listTop + 34))
+
+    -- Adventure Anniversary (v0.13.0): on a memorable day it takes the
+    -- place of the third latest screenshot. It counts from the first login
+    -- with ForeverMemories, not from the creation of the character.
+    local anniversary = W.Panel(parent, W.COLORS.panel, W.COLORS.gold)
+    anniversary:SetSize(UI.CONTENT_WIDTH, 32)
+    anniversary:SetPoint("TOPLEFT", 0, -(listTop + 26) - (LATEST - 1) * 36)
+    local annivIcon = W.Icon(anniversary, "Interface\\Icons\\INV_Crown_01", 20)
+    annivIcon:SetPoint("LEFT", 8, 0)
+    local annivTitle = W.Text(anniversary, "", "GameFontNormal", W.COLORS.heading)
+    annivTitle:SetPoint("LEFT", annivIcon, "RIGHT", 8, 0)
+    local annivStats = W.Text(anniversary, "", "GameFontHighlightSmall", W.COLORS.text)
+    annivStats:SetPoint("RIGHT", -10, 0)
+    annivStats:SetJustifyH("RIGHT")
+    W.Tooltip(anniversary, L.TIP_ANNIVERSARY, L.ANNIVERSARY)
+    anniversary:Hide()
+    local function refreshAnniversary()
+        local a = ns.Memories.Anniversary()
+        anniversary:SetShown(a ~= nil)
+        if not a then
+            return false
+        end
+        annivTitle:SetText(a.kind == "YEAR" and string.format(L.ANNIV_YEAR, ns.Count(a.years, "YEARS"))
+            or L["ANNIV_" .. a.kind])
+        local s = ns.DataTools.Summary(ns.character)
+        annivStats:SetText(table.concat({
+            string.format(L.ANNIV_SINCE, date("%d.%m.%Y", a.started)),
+            ns.Count(s.shots, "SHOTS"), ns.Count(s.steps, "STEPS"), ns.Count(s.zones, "ZONES"),
+        }, "  ·  "))
+        return true
+    end
+
+    -- Last adventure (v0.12.0, replaces "Adventure This Week", which stays
+    -- in History / Overview): the last completed session of this
+    -- character; a click opens its details.
+    local last = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    W.Backdrop(last, W.COLORS.panel, 0.95, W.COLORS.divider)
+    last:SetSize(UI.CONTENT_WIDTH, 52)
+    last:SetPoint("TOPLEFT", 0, -(listTop + 26 + LATEST * 36 + 4))
+    local lastTitle = W.Text(last, L.LAST_ADVENTURE, "GameFontNormal", W.COLORS.heading)
+    lastTitle:SetPoint("TOPLEFT", 12, -9)
+    local lastMore = W.Text(last, L.DETAILS, "GameFontHighlightSmall", W.COLORS.gold)
+    lastMore:SetPoint("TOPRIGHT", -12, -10)
+    lastMore:SetJustifyH("RIGHT")
+    local lastValues = W.Text(last, "", "GameFontHighlightSmall", W.COLORS.text)
+    lastValues:SetPoint("BOTTOMLEFT", 12, 9)
+    lastValues:SetPoint("RIGHT", last, "RIGHT", -12, 0)
+    W.AddScript(last, "OnEnter", function() local g = W.COLORS.gold; last:SetBackdropBorderColor(g[1], g[2], g[3], 1) end)
+    W.AddScript(last, "OnLeave", function() local d = W.COLORS.divider; last:SetBackdropBorderColor(d[1], d[2], d[3], 1) end)
+    W.Tooltip(last, L.TIP_LAST_ADVENTURE, L.LAST_ADVENTURE)
+    local details = UI.SessionDetails(parent)
+    last:SetScript("OnClick", function()
+        local session = ns.Activity.LastSession()
+        if session then
+            details:ShowSession(session)
+        end
+    end)
+    local function refreshLast()
+        local session = ns.Activity.LastSession()
+        lastMore:SetShown(session ~= nil)
+        if not session then
+            lastValues:SetText(L.NO_LAST_ADVENTURE)
+            return
+        end
+        local parts = { date("%d.%m", session.start), UI.FormatDuration(session.active) }
+        if session.shots then
+            parts[#parts + 1] = ns.Count(session.shots, "SHOTS")
+            parts[#parts + 1] = ns.Count(session.steps or 0, "STEPS")
+            parts[#parts + 1] = ns.Count(session.zones or 0, "ZONES")
+        end
+        lastValues:SetText(table.concat(parts, "   ·   "))
+    end
     local all = W.Link(parent, L.VIEW_SHOT_HISTORY, function() UI.ShowTab("history", "shots") end)
     all:SetPoint("BOTTOM", 0, 0)
 
@@ -486,6 +693,7 @@ UI.builders.home = function(parent)
         fill:SetShown(fraction > 0 and state ~= "disabled")
     end
     return {
+        LastAdventure = last,
         RefreshSteps = refreshSteps,
         RefreshClock = refreshClock,
         Refresh = function()
@@ -494,9 +702,10 @@ UI.builders.home = function(parent)
             cards.shots.value:SetText(ns.Num(ns.History.Stats().today))
             refreshSteps()
             refreshClock()
-            local latest = ns.History.Today(LATEST)
+            local shown = refreshAnniversary() and LATEST - 1 or LATEST
+            local latest = ns.History.Today(shown)
             for i, row in ipairs(rows) do
-                if latest[i] then
+                if latest[i] and i <= shown then
                     UI.FillShotRow(row, latest[i], false)
                     row:Show()
                 else
@@ -504,6 +713,7 @@ UI.builders.home = function(parent)
                 end
             end
             empty:SetShown(#latest == 0)
+            refreshLast()
         end,
     }
 end

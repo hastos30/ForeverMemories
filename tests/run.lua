@@ -30,9 +30,23 @@ local function near(actual, expected, tolerance, what)
     end
 end
 
+-- The fake client knows every catalog zone by its English name
+-- (like an enUS Forever client), unless a test says otherwise.
+local function fillAreas(env, ns)
+    for _, region in ipairs(ns.ZoneCatalog.REGIONS) do
+        for _, zone in ipairs(region.zones) do
+            env.areaNames[zone[1]] = zone[2]
+        end
+    end
+end
+
 local function start(options)
     local env = Mock.new(options)
-    local ns = env.login(".")
+    local ns = env.loadAddon(".")
+    fillAreas(env, ns)
+    env.fire("ADDON_LOADED", "ForeverMemories")
+    env.fire("PLAYER_LOGIN")
+    env.fire("PLAYER_ENTERING_WORLD")
     return env, ns
 end
 
@@ -75,7 +89,7 @@ end
 ---------------------------------------------------------------------------
 test("T01 fresh install: all defaults, nothing to set up", function()
     local _, ns = start()
-    eq(ns.db.schemaVersion, 4, "schema")
+    eq(ns.db.schemaVersion, 5, "schema")
     local s = ns.db.settings
     eq(s.enabled, true, "auto capture on")
     eq(s.mode, "normal", "normal shot")
@@ -122,12 +136,12 @@ end
 test("migration 0.4.2 -> 0.5.0 keeps history, stats and compatible settings", function()
     local _, ns = start({ savedDB = oldDB() })
     local db = ns.db
-    eq(db.schemaVersion, 4, "schema")
+    eq(db.schemaVersion, 5, "schema")
     eq(db.settings.enabled, false, "pause kept")
     eq(db.settings.locale, "ruRU", "language kept")
     eq(db.settings.sound, true, "sound kept (it was set)")
     eq(db.settings.minimap, false, "minimap kept")
-    eq(db.settings.scale, 1.3, "scale clamped to the new range")
+    eq(db.settings.scale, 1.4, "scale kept: inside 70-150 % (v0.10.0)")
     eq(db.settings.events.DEATH, false, "a switch changed in the custom profile is kept")
     eq(db.settings.events.LEVEL, true, "others on")
     eq(db.settings.events.MOUNT, nil, "removed event dropped")
@@ -776,7 +790,8 @@ test("every L.KEY used in code exists in enUS", function()
     local _, ns = start()
     local files = { "Core/Commands.lua", "Core/Events.lua", "Modules/History.lua", "Modules/Notifications.lua",
                     "Modules/Passive.lua", "Modules/Activity.lua", "Modules/Locations.lua",
-                    "UI/Main.lua", "UI/Capture.lua", "UI/History.lua", "UI/Settings.lua", "UI/Minimap.lua" }
+                    "UI/Main.lua", "UI/Capture.lua", "UI/History.lua", "UI/Settings.lua", "UI/Minimap.lua",
+                    "UI/SettingsData.lua", "UI/SettingsAbout.lua", "UI/Dialogs.lua", "Modules/DataTools.lua" }
     for _, file in ipairs(files) do
         local text = assert(io.open(file)):read("*a")
         for key in string.gmatch(text, "L%.([%u_][%w_]*)") do
@@ -949,7 +964,7 @@ test("data from 0.7.0 is kept; new fields are added without a migration", functi
     saved.characters["Forever:Nedisan"].locations = { days = { bad = 5, ["2026-11-20"] = { x = 1 } } }
     local env2 = Mock.new({ savedDB = saved })
     local ns2 = env2.login(".")
-    eq(ns2.db.schemaVersion, 4, "same schema")
+    eq(ns2.db.schemaVersion, 5, "same schema")
     eq(ns2.History.Stats().total, 1, "shots kept") eq(ns2.Steps.Total(), 500, "steps kept")
     eq(type(ns2.character.playtime.days), "table", "playtime added")
     eq(ns2.Locations.OnDay("2026-11-20"), 0, "damaged entries removed")
@@ -995,9 +1010,11 @@ test("window: four tabs, each builds and refreshes without errors", function()
     for _, name in ipairs({ "Home", "Auto capture", "History", "Settings" }) do
         eq(findButton(env, name) ~= nil, true, "tab " .. name)
     end
-    for _, gone in ipairs({ "Events", "Journey", "Profiles", "Diagnostics", "About" }) do
+    -- "Journey" is a History sub-view since v0.9.0, not a main tab.
+    for _, gone in ipairs({ "Events", "Profiles", "Diagnostics" }) do
         eq(findButton(env, gone), nil, "no tab " .. gone)
     end
+    -- "About" is a page inside Settings since v0.10.0, not a main tab.
     noErrors(ns)
 end)
 
@@ -1110,6 +1127,8 @@ test("history: lifetime dashboard stays visible over Screenshots, Steps and Loca
         eq(hasText(env, "358,724"), true, sub .. ": total steps value")
         eq(hasText(env, "3h 42m"), true, sub .. ": total playtime value")
     end
+    -- Opening Locations at a day (Overview's day panel) opens the history there.
+    ns.UI.OpenHistory("zones", ns.Util.DayKey(time()))
     eq(hasText(env, "Westfall"), true, "locations list")
     eq(hasText(env, "First visit"), true, "first visit mark")
     eq(hasText(env, "2 locations"), true, "count of the day")
@@ -1173,17 +1192,28 @@ test("window and notification are hidden during a shot", function()
     env.advance(1)
     eq(_G.ForeverMemoriesMainFrame:IsShown(), true, "back")
     eq(_G.ForeverMemoriesToast:IsShown(), true, "notification after the shot")
-    env.advance(4)
+    env.advance(6) -- 5 s by default since v0.10.0
     eq(_G.ForeverMemoriesToast:IsShown(), false, "notification gone")
 end)
 
 test("slash commands run without errors", function()
     local env, ns = start()
-    for _, command in ipairs({ "", "status", "debug", "log", "ui", "reset", "off", "on", "toggle", "shot", "help" }) do
+    for _, command in ipairs({ "", "status", "debug", "log", "zones", "ui", "reset", "off", "on", "toggle", "shot", "help" }) do
         SlashCmdList.FOREVERMEMORIES(command)
     end
     env.advance(3)
+    eq(type(ns.db.zoneDump), "table", "/fm zones saved for the file")
+    eq(ns.db.zoneDump.lines[#ns.db.zoneDump.lines - 1], "missing in client: -", "every catalog zone known")
     noErrors(ns)
+end)
+
+test("world explorer: client knows none of the IDs -> English names in enUS, none otherwise", function()
+    local env = Mock.new()
+    local ns = env.login(".") -- areaNames stay empty: GetAreaInfo knows nothing
+    eq(ns.ZoneCatalog.Explorer().status, "english", "enUS")
+    local env2 = Mock.new({ locale = "ruRU" })
+    local ru = env2.login(".")
+    eq(ru.ZoneCatalog.Explorer().percent, nil, "ruRU: not confirmed")
 end)
 
 test("passive: Auto capture tab block, interval buttons and switch", function()
@@ -1226,6 +1256,1013 @@ test("chat: every saved screenshot is reported in chat (manual, event, passive)"
     ns.Engine.ManualShot()
     env.advance(2)
     eq(saidSaved(), 3, "notifications off: no chat message")
+end)
+
+
+---------------------------------------------------------------------------
+-- v0.9.0: adventure diary
+---------------------------------------------------------------------------
+local function schema4DB()
+    local t0 = os.time({ year = 2026, month = 11, day = 19, hour = 16 })
+    return {
+        schemaVersion = 4,
+        settings = { enabled = true },
+        characters = {
+            ["Forever:Nedisan"] = {
+                name = "Nedisan", realm = "Forever", class = "DRUID",
+                shots = {
+                    { t = t0, ev = "ZONE", zone = "Westfall" },
+                    { t = t0 + 60, ev = "LOOT_RARE", zone = "Westfall", info = "[Blue]" },
+                    { t = t0 + 120, ev = "LEVEL", zone = "Westfall", info = 10 },
+                    { t = t0 + 180, ev = "LOOT_RARE", zone = "Westfall", info = "[Blue 2]" },
+                    { t = t0 + 240, ev = "BOSS", zone = "The Deadmines", info = "VanCleef" },
+                    { t = t0 + 300, ev = "DUEL", zone = "Elwynn Forest", info = "Bob" },
+                    { t = t0 + 360, ev = "GUILD", zone = "Stormwind City", info = "Heroes" },
+                    { t = t0 + 420, ev = "LEVEL", zone = "Duskwood", info = 11 },
+                },
+                shotsTotal = 8, shotsByDay = { ["2026-11-19"] = 8 }, shotZones = {},
+                visited = { ["map:52"] = true, ["map:37"] = true, ["map:1"] = true }, zonesSeeded = true,
+                steps = { total = 9436, days = { ["2026-11-19"] = 9436 }, since = t0 - 3600 },
+                passive = { elapsed = 0 },
+                playtime = { total = 3600, days = { ["2026-11-20"] = 3600 } },
+                locations = { days = {
+                    ["2026-11-20"] = { ["map:52"] = { name = "Westfall", t = t0 + 86400, first = true },
+                                       ["map:37"] = { name = "Elwynn Forest", t = t0 + 86400 + 50 } },
+                } },
+            },
+        },
+    }
+end
+
+test("migration 0.8 -> 0.9: diary from real records only, nothing lost, runs once", function()
+    local env = Mock.new({ savedDB = schema4DB() })
+    local ns = env.loadAddon(".")
+    fillAreas(env, ns)
+    env.fire("ADDON_LOADED", "ForeverMemories")
+    env.fire("PLAYER_LOGIN")
+    env.fire("PLAYER_ENTERING_WORLD")
+    local c = ns.character
+    eq(ns.db.schemaVersion, 5, "schema 5")
+    eq(#c.shots, 8, "shots kept") eq(ns.Steps.Total(), 9436, "steps kept")
+    eq(c.playtime.days["2026-11-20"], 3600, "playtime kept")
+    eq(c.playtime.sinceDay, "2026-11-20", "playtime counted since its first day")
+    eq(c.visited["map:1"], true, "visited zones kept")
+    local kinds = {}
+    for _, e in ipairs(c.journey.events) do kinds[#kinds + 1] = e.kind end
+    eq(table.concat(kinds, ","), "FIRST_RARE,LEVEL,FIRST_DUEL,GUILD,LEVEL", "journey from shots")
+    eq(c.journey.events[1].info, "[Blue]", "the first rare item, once")
+    eq(c.journey.started, os.time({ year = 2026, month = 11, day = 19, hour = 15 }), "start = earliest record (steps)")
+    eq(c.visitedAt["map:52"], os.time({ year = 2026, month = 11, day = 20, hour = 16 }), "first registered visit")
+    eq(c.visitedAt["map:1"], nil, "no invented date for an old visit")
+    -- Loading the saved data again changes nothing.
+    local env2 = Mock.new({ savedDB = ns.db })
+    local ns2 = env2.login(".")
+    eq(#ns2.character.journey.events, 5, "no duplicates")
+    noErrors(ns2)
+end)
+
+test("migration 0.4.2 -> 0.9: journey from old shots too", function()
+    local _, ns = start({ savedDB = oldDB() })
+    local journey = ns.db.characters["Forever:Nedisan"].journey
+    eq(journey.events[1] and journey.events[1].kind, "LEVEL", "level 24 from the old journal")
+    eq(journey.events[1].info, 24, "level number")
+    eq(journey.started, 1795000000, "start = the earliest old record")
+    noErrors(ns)
+end)
+
+test("journey: levels, max level, first boss / items / duel, guild; independent of capture", function()
+    local env, ns = start()
+    ns.Engine.SetEnabled(false)              -- auto capture paused
+    ns.db.settings.events.LOOT_EPIC = false  -- and this event not photographed
+    levelUp(env, 11)
+    env.advance(2)
+    env.maxLevel = 12
+    levelUp(env, 12)
+    env.advance(2)
+    env.instanceType = "party"
+    env.fire("ENCOUNTER_END", 1, "Boss A", 1, 5, 1)
+    env.advance(2)
+    env.fire("ENCOUNTER_END", 2, "Boss B", 1, 5, 1)
+    env.advance(2)
+    env.instanceType = "raid"
+    env.fire("ENCOUNTER_END", 3, "Onyxia", 1, 5, 1)
+    env.instanceType = "none"
+    env.advance(2)
+    local epic = "|cffa335ee|Hitem:100::::::::|h[Epic]|h|r"
+    env.fire("CHAT_MSG_LOOT", "You receive loot: " .. epic .. ".")
+    env.advance(2)
+    env.fire("CHAT_MSG_LOOT", "You receive loot: " .. epic .. ".")
+    env.advance(70)
+    env.fire("CHAT_MSG_SYSTEM", "Nedisan has defeated Bob in a duel")
+    env.advance(2)
+    local rows = ns.Journey.Rows()
+    local kinds = {}
+    for _, e in ipairs(rows) do kinds[#kinds + 1] = e.kind end
+    eq(table.concat(kinds, ","), "FIRST_DUEL,FIRST_EPIC,FIRST_RAID_BOSS,FIRST_DUNGEON_BOSS,MAX_LEVEL,LEVEL,START",
+        "newest first, each first once, start last")
+    eq(rows[4].info, "Boss A", "boss name") eq(rows[5].info, 12, "max level")
+    eq(ns.Journey.Title(rows[6]), "Reached level 11", "title")
+    eq(#shots(ns), 0, "no screenshots were taken for the journey")
+    noErrors(ns)
+end)
+
+test("calendar: fixed levels without overlaps, 12 Monday weeks, today, future, no data", function()
+    local env = Mock.new()
+    env.unix = os.time({ year = 2026, month = 11, day = 25, hour = 12 }) -- Wednesday
+    local ns = env.login(".")
+    local A = ns.Adventure
+    eq(A.Level(0), 0, "0 min") eq(A.Level(1), 1, "seconds") eq(A.Level(59 * 60 + 59), 1, "under 60")
+    eq(A.Level(60 * 60), 2, "60") eq(A.Level(119 * 60 + 59), 2, "under 120")
+    eq(A.Level(120 * 60), 3, "120") eq(A.Level(239 * 60), 3, "under 240") eq(A.Level(240 * 60), 4, "240")
+    ns.character.playtime.days["2026-11-24"] = 3 * 3600
+    local columns = A.Calendar("2026-11-25", 12)
+    eq(#columns, 12, "12 weeks")
+    local last = columns[12].days
+    eq(last[1].day, "2026-11-23", "week starts on Monday")
+    eq(last[3].today, true, "today marked")
+    eq(last[2].state, "nodata", "before the tracker started: no data, not zero")
+    eq(last[3].state, 0, "today without play yet: level 0")
+    eq(last[4].state, "future", "future days are not past days")
+    eq(columns[1].days[1].day, "2026-09-07", "first week")
+    eq(columns[4].month, 10, "October label where the 1st is")
+    ns.character.playtime.sinceDay = "2026-11-20"
+    eq(A.Calendar("2026-11-25", 12)[12].days[2].state, 3, "3 h -> gold")
+    eq(A.Calendar("2026-11-25", 12)[11].days[6].state, 0, "a tracked day without play")
+end)
+
+test("recap: week Monday-Sunday, month 1st-last, unique zones as a union", function()
+    local env = Mock.new()
+    env.unix = os.time({ year = 2026, month = 11, day = 25, hour = 12 })
+    local ns = env.login(".")
+    local c = ns.character
+    c.shotsByDay = { ["2026-11-22"] = 5, ["2026-11-23"] = 2, ["2026-11-29"] = 1, ["2026-11-01"] = 4 }
+    c.steps.days = { ["2026-11-23"] = 1000.7, ["2026-11-24"] = 500.6 }
+    c.playtime.days = { ["2026-11-23"] = 3600, ["2026-11-24"] = 0, ["2026-11-02"] = 600 }
+    c.locations.days = {
+        ["2026-11-23"] = { ["map:52"] = { name = "Westfall", t = 1, first = true }, ["map:37"] = { name = "Elwynn", t = 2 } },
+        ["2026-11-24"] = { ["map:52"] = { name = "Westfall", t = 3 }, ["map:10"] = { name = "Duskwood", t = 4, first = true } },
+        ["2026-11-02"] = { ["map:40"] = { name = "X", t = 5 } },
+    }
+    local first, last = ns.Adventure.WeekRange("2026-11-25")
+    eq(first .. " " .. last, "2026-11-23 2026-11-29", "week")
+    eq(table.concat({ ns.Adventure.MonthRange("2026-02-10") }, " "), "2026-02-01 2026-02-28", "February")
+    local w = ns.Adventure.Week("2026-11-25")
+    eq(w.shots, 3, "shots of the week") eq(w.steps, 1501, "steps") eq(w.zones, 3, "unique zones, not 4")
+    eq(w.newZones, 2, "new zones") eq(w.playtime, 3600, "playtime") eq(w.days, 1, "days played")
+    local m = ns.Adventure.Month("2026-11-25")
+    eq(m.shots, 12, "month shots") eq(m.zones, 4, "month zones") eq(m.days, 2, "month days")
+end)
+
+test("world explorer: catalog counted, zones by area, dungeons excluded, per character", function()
+    local env, ns = start()
+    local e = ns.ZoneCatalog.Explorer()
+    local total = 0
+    for _, region in ipairs(ns.ZoneCatalog.REGIONS) do total = total + #region.zones end
+    eq(e.total, total, "total = catalog size, computed")
+    eq(#e.regions, 3, "Eastern Kingdoms, Kalimdor, Zephras Isle")
+    eq(e.visited, 1, "Elwynn Forest (login zone)")
+    env.mapID, env.zone = 52, "Westfall"
+    env.fire("ZONE_CHANGED_NEW_AREA")
+    env.instanceType, env.mapID, env.zone = "party", 291, "The Deadmines"
+    env.fire("ZONE_CHANGED_NEW_AREA")
+    env.advance(5)
+    e = ns.ZoneCatalog.Explorer()
+    eq(e.visited, 2, "the dungeon does not count")
+    near(e.percent, 2 / total * 100, 0.001, "percent computed")
+    local westfall
+    for _, z in ipairs(e.regions[1].zones) do if z.name == "Westfall" then westfall = z end end
+    eq(westfall.visited, true, "visited") eq(type(westfall.firstAt), "number", "first visit date")
+    eq(e.regions[1].zones[1].name, "Alterac Mountains", "alphabetical")
+    local day = ns.Locations.Day(ns.Util.DayKey(time()))
+    eq(day["inst:The Deadmines"].instance, "party", "dungeon kept in the daily history")
+    eq(ns.Locations.Total(), 2, "dungeon is not a visited zone")
+    eq(#shots(ns), 1, "only Westfall gave a New zone shot")
+    noErrors(ns)
+end)
+
+test("world explorer: no confirmed catalog -> no percentage", function()
+    local env, ns = start({ noAreaInfo = true, locale = "ruRU" })
+    local e = ns.ZoneCatalog.Explorer()
+    eq(e.percent, nil, "no percent")
+    ns.UI.Toggle("history", "zones")
+    eq(hasText(env, "Нет данных"), true, "shown as no data")
+    noErrors(ns)
+    local _, en = start({ noAreaInfo = true })
+    eq(en.ZoneCatalog.Explorer().percent ~= nil, true, "English client: English names are the client's")
+end)
+
+test("locations: first arrival of the day kept, one row per zone and day", function()
+    local env, ns = start()
+    local key = ns.Util.DayKey(time())
+    local first = ns.Locations.Day(key)["map:37"].t
+    env.advance(60)
+    env.mapID, env.zone = 52, "Westfall"
+    env.fire("ZONE_CHANGED_NEW_AREA")
+    env.advance(60)
+    env.mapID, env.zone = 37, "Elwynn Forest"
+    env.fire("ZONE_CHANGED_NEW_AREA")
+    eq(ns.Locations.Day(key)["map:37"].t, first, "first arrival time")
+    eq(ns.Locations.OnDay(key), 2, "two rows")
+end)
+
+test("sessions: reload continues, a later login starts a new one; longest kept", function()
+    local env = Mock.new()
+    local ns = env.login(".")
+    env.advance(30 * MIN)
+    eq(select(1, ns.Activity.Sessions()), 1, "current session counts")
+    local saved = ns.db
+    local env2 = Mock.new({ savedDB = saved })
+    env2.unix = env.unix + 30 * MIN + 30 -- /reload
+    local ns2 = env2.login(".")
+    env2.advance(10 * MIN)
+    local count, longest = ns2.Activity.Sessions()
+    eq(count, 1, "reload is the same session") near(longest, 40 * MIN, 3, "40 min so far")
+    local env3 = Mock.new({ savedDB = saved })
+    env3.unix = env2.unix + 3 * 3600 -- next evening
+    local ns3 = env3.login(".")
+    env3.advance(5 * MIN)
+    count, longest = ns3.Activity.Sessions()
+    eq(count, 2, "new session") near(longest, 40 * MIN, 3, "longest kept")
+    eq(ns3.character.playtime.sessions, 1, "one closed")
+    local days, total, average = ns3.Activity.PlayedDays()
+    eq(days, 1, "one day") eq(average, total, "average of one day")
+end)
+
+test("search: case-insensitive, Russian letters too", function()
+    local _, ns = start()
+    eq(ns.Util.Lower("ДУСКВУД Ёж Westfall"), "дусквуд ёж westfall", "lower")
+end)
+
+test("history v0.9: six sub-views, Overview first, calendar day opens its history", function()
+    local env, ns = start()
+    levelUp(env, 11)
+    env.advance(65)
+    ns.UI.Toggle()
+    findButton(env, "History"):Click()
+    eq(hasText(env, "Adventure Calendar"), true, "Overview opens by default")
+    -- One scroll area below the dashboard: the recap is further down.
+    for _, frame in ipairs(env.frames) do
+        if frame.shown and frame.scripts.OnMouseWheel then frame.scripts.OnMouseWheel(frame, -5) end
+    end
+    eq(hasText(env, "Adventure Recap"), true, "recap")
+    eq(hasText(env, "Unique locations"), true, "recap rows")
+    for _, sub in ipairs({ "Overview", "Screenshots", "Steps", "Locations", "Playtime", "Journey" }) do
+        local button = findButton(env, sub)
+        eq(button ~= nil, true, "sub-view " .. sub)
+        button:Click()
+        for _, label in ipairs({ "Total screenshots", "Total steps", "Locations visited", "Total playtime" }) do
+            eq(hasText(env, label), true, sub .. ": card " .. label)
+        end
+    end
+    eq(hasText(env, "Reached level 11"), true, "journey entry")
+    eq(hasText(env, "Journey Started"), true, "journey start")
+    findButton(env, "Playtime"):Click()
+    eq(hasText(env, "Longest Session"), true, "playtime tiles")
+    findButton(env, "Locations"):Click()
+    eq(hasText(env, "World Explorer"), true, "explorer")
+    eq(hasText(env, "1 / 51"), true, "progress of the catalog")
+    eq(hasText(env, "Eastern Kingdoms"), true, "region")
+    ns.UI.OpenHistory("shots", ns.Util.DayKey(time()))
+    eq(hasText(env, "Reached level 11"), true, "shots of the day")
+    eq(#ns.UI.TABS, 4, "still four main tabs")
+    noErrors(ns)
+end)
+
+test("home: Last adventure card (v0.12, replaces Adventure This Week)", function()
+    local env, ns = start()
+    ns.UI.Toggle()
+    eq(hasText(env, "Last adventure"), true, "card")
+    eq(hasText(env, "Your first completed session will appear here"), true, "no session yet")
+    eq(hasText(env, "Total screenshots"), false, "no lifetime cards on Home")
+    noErrors(ns)
+    local ru = select(2, start({ locale = "ruRU" }))
+    ru.UI.Toggle()
+    noErrors(ru)
+end)
+
+---------------------------------------------------------------------------
+-- v0.10.0: Settings & Identity
+---------------------------------------------------------------------------
+local function dialogText()
+    return _G.ForeverMemoriesTextDialog and _G.ForeverMemoriesTextDialog.edit:GetText()
+end
+
+test("v0.10 settings: new defaults, scale 70-150 %, four pages under Settings", function()
+    local env, ns = start()
+    local s = ns.db.settings
+    eq(s.rememberTab, true, "remember tab")
+    eq(s.toastDuration, 5, "5 s")
+    eq(s.notifications, true, "notifications")
+    eq(s.sound, false, "sound off")
+    eq(s.locale, "auto", "language from the client")
+    ns.UI.Toggle("settings")
+    for _, name in ipairs({ "General", "Data", "About", "Changelog" }) do
+        local button = findButton(env, name)
+        eq(button ~= nil, true, "page " .. name)
+        button:Click()
+    end
+    eq(#ns.UI.TABS, 4, "still four main tabs")
+    noErrors(ns)
+    local _, low = start({ savedDB = { schemaVersion = 5, settings = { scale = 0.6, toastDuration = 4 }, characters = {} } })
+    eq(low.db.settings.scale, 1, "below 70 % reset")
+    eq(low.db.settings.toastDuration, 5, "unknown duration reset")
+    local _, high = start({ savedDB = { schemaVersion = 5, settings = { scale = 1.5 }, characters = {} } })
+    eq(high.db.settings.scale, 1.5, "150 % allowed")
+end)
+
+test("v0.10 restore defaults: general settings only, after confirmation", function()
+    local env, ns = start()
+    env.autoConfirm = false
+    local s = ns.db.settings
+    s.scale, s.minimap, s.rememberTab, s.sound, s.toastDuration, s.notifications = 1.4, false, false, true, 10, false
+    s.mode, s.passive, s.enabled, s.events.LEVEL = "clean", false, false, false
+    ns.db.ui.point = { "CENTER", "CENTER", 5, 5 }
+    levelUp(env, 11)
+    ns.Engine.ManualShot()
+    env.advance(2)
+    local before = #shots(ns)
+    ns.UI.Toggle("settings")
+    findButton(env, "Restore default settings"):Click()
+    eq(s.scale, 1.4, "nothing changed before the answer")
+    env.autoConfirm = true
+    findButton(env, "Restore default settings"):Click()
+    eq(s.scale, 1, "scale")
+    eq(s.minimap, true, "minimap")
+    eq(s.rememberTab, true, "tab")
+    eq(s.sound, false, "sound")
+    eq(s.toastDuration, 5, "duration")
+    eq(s.notifications, true, "notifications")
+    eq(ns.db.ui.point, nil, "window position")
+    eq(s.mode, "clean", "capture mode kept")
+    eq(s.passive, false, "passive kept")
+    eq(s.enabled, false, "pause kept")
+    eq(s.events.LEVEL, false, "event switch kept")
+    eq(#shots(ns), before, "history kept")
+    noErrors(ns)
+end)
+
+test("v0.10 remember tab: last tab after /reload; off -> Home", function()
+    local env, ns = start()
+    ns.UI.Toggle("history")
+    eq(ns.db.ui.lastTab, "history", "saved")
+    local env2, ns2 = start({ savedDB = ns.db })
+    ns2.UI.Toggle()
+    eq(ns2.UI.CurrentTab(), "history", "opens where it was")
+    ns2.db.settings.rememberTab = false
+    local _, ns3 = start({ savedDB = ns2.db })
+    ns3.UI.Toggle()
+    eq(ns3.UI.CurrentTab(), "home", "always Home when off")
+    ns3.UI.Toggle("settings")
+    ns3.UI.Toggle() -- close
+    ns3.UI.Toggle() -- open again
+    eq(ns3.UI.CurrentTab(), "home", "reopened on Home")
+end)
+
+test("v0.10 notifications: duration 3/5/10, test notification even when off", function()
+    local env, ns = start()
+    ns.db.settings.toastDuration = 10
+    ns.db.settings.notifications = false
+    ns.UI.Toggle("settings")
+    findButton(env, "Test notification"):Click()
+    eq(_G.ForeverMemoriesToast:IsShown(), true, "shown")
+    env.advance(9)
+    eq(_G.ForeverMemoriesToast:IsShown(), true, "still shown at 9 s")
+    env.advance(2)
+    eq(_G.ForeverMemoriesToast:IsShown(), false, "gone after 10 s")
+    eq(#shots(ns), 0, "no screenshot")
+    findButton(env, "3 sec"):Click()
+    eq(ns.db.settings.toastDuration, 3, "3 s chosen")
+end)
+
+test("v0.10 serialize: round trip, and nothing but the format is accepted", function()
+    local _, ns = start()
+    local S = ns.Serialize
+    local data = { a = "Elwynn Forest; |cffff0000x|r 100% \\ \n", n = { 1, 2.5, -3e-7, 1795000000 },
+                   yes = true, no = false, ru = "Сумеречный лес", [7] = { deep = { deeper = "x" } } }
+    local text = S.Encode(data, 5)
+    eq(string.find(text, "|", 1, true), nil, "no | in the text (chat escapes)")
+    eq(string.find(text, " ", 1, true), nil, "no spaces")
+    local back, schema = S.Decode("  " .. string.sub(text, 1, 40) .. "\n" .. string.sub(text, 41) .. "\n")
+    eq(schema, 5, "schema")
+    eq(back.a, data.a, "string")
+    eq(back.n[2], 2.5, "number")
+    eq(back.n[3], -3e-7, "small number")
+    eq(back.yes, true, "true")
+    eq(back.no, false, "false")
+    eq(back.ru, data.ru, "UTF-8")
+    eq(back[7].deep.deeper, "x", "nested")
+    eq(select(2, S.Decode("")), "empty", "empty")
+    eq(select(2, S.Decode("return os.exit()")), "format", "Lua code is not a backup")
+    eq(select(2, S.Decode(string.sub(text, 1, -3))), "checksum", "cut text")
+    local payload = "TSa;F"
+    eq(select(2, S.Decode("FMB1:5:" .. S.Checksum(payload) .. ":" .. payload)), "damaged", "unfinished table")
+    payload = "TSa;S%4;E"
+    eq(select(2, S.Decode("FMB1:5:" .. S.Checksum(payload) .. ":" .. payload)), "damaged", "bad escape")
+    payload = "TYSa;E"
+    eq(select(2, S.Decode("FMB1:5:" .. S.Checksum(payload) .. ":" .. payload)), "damaged", "boolean key")
+end)
+
+test("v0.10 backup and import: checked, confirmed, restored; never executed", function()
+    local env, ns = start()
+    levelUp(env, 11)
+    env.advance(2)
+    walk(env, 30)
+    local shotsBefore, stepsBefore = #shots(ns), ns.Steps.Total()
+    ns.db.characters["Forever:Alt"] = { name = "Alt", realm = "Forever", class = "MAGE" }
+    ns.db.characters["Forever:Alt"] = ns.Database.Load({ schemaVersion = 5, settings = {},
+        characters = { ["Forever:Alt"] = { name = "Alt", realm = "Forever", class = "MAGE" } } }).characters["Forever:Alt"]
+    local text = ns.DataTools.BackupText()
+    -- A string that looks like code stays a string.
+    ns.character.shots[1].zone = "os.exit(1) --]]"
+    local evil = ns.DataTools.BackupText()
+    ns.character.shots[1].zone = "Elwynn Forest"
+
+    ns.DataTools.ClearCurrent()
+    ns.DataTools.Delete("Forever:Alt")
+    eq(#shots(ns), 0, "cleared")
+    eq(ns.db.characters["Forever:Alt"], nil, "alt deleted")
+
+    eq(select(2, ns.DataTools.CheckBackup("hello")), "format", "not a backup")
+    local newer = string.gsub(text, "^FMB1:5:", "FMB1:9:")
+    eq(select(2, ns.DataTools.CheckBackup(newer)), "newer", "newer schema refused")
+    local plan = assert(ns.DataTools.CheckBackup(text))
+    eq(plan.characters, 2, "two characters")
+    eq(plan.shots, shotsBefore, "shot records")
+    eq(plan.version, ns.version, "made by")
+    eq(#shots(ns), 0, "checking changes nothing")
+
+    env.autoConfirm = true
+    ns.UI.Toggle("settings")
+    findButton(env, "Data"):Click()
+    findButton(env, "Import data"):Click()
+    _G.ForeverMemoriesTextDialog.edit:SetText(text)
+    findButton(env, "Check"):Click()
+    eq(#shots(ns), shotsBefore, "shots restored")
+    near(ns.Steps.Total(), stepsBefore, 0.01, "steps restored")
+    eq(ns.db.characters["Forever:Alt"] ~= nil, true, "alt restored")
+    eq(ForeverMemoriesDB, ns.db, "saved variable replaced")
+    eq(env.reloads, 1, "reload offered and accepted")
+    local evilPlan = assert(ns.DataTools.CheckBackup(evil))
+    eq(evilPlan.db.characters["Forever:Nedisan"].shots[1].zone, "os.exit(1) --]]", "text kept as text")
+    levelUp(env, 12)
+    env.advance(2)
+    eq(#shots(ns), shotsBefore + 1, "recording continues")
+    noErrors(ns)
+end)
+
+test("v0.10 data page: storage, characters, delete asks with the name", function()
+    local env, ns = start()
+    levelUp(env, 11)
+    env.advance(2)
+    ns.db.characters["Forever:Aeloria"] = ns.Database.Load({ schemaVersion = 5, settings = {},
+        characters = { ["Forever:Aeloria"] = { name = "Aeloria", realm = "Forever", class = "MAGE",
+            shotsByDay = { ["2020-01-01"] = 2 }, shots = { { t = 1, ev = "MANUAL" } }, shotsTotal = 2 } } }).characters["Forever:Aeloria"]
+    local storage = ns.Database.Storage(ns.db)
+    eq(storage.characters, 2, "characters")
+    eq(storage.shots, 2, "records")
+    eq(storage.days >= 2, true, "days of both characters")
+    local list = ns.DataTools.Characters()
+    eq(list[1].current, true, "current first")
+    eq(list[2].key, "Forever:Aeloria", "other")
+    env.autoConfirm = false
+    ns.UI.Toggle("settings")
+    findButton(env, "Data"):Click()
+    eq(hasText(env, "Unavailable"), true, "no memory API in the mock")
+    findButton(env, "Delete"):Click()
+    eq(string.find(env.popups[#env.popups], "Aeloria", 1, true) ~= nil, true, "name in the question")
+    eq(ns.db.characters["Forever:Aeloria"] ~= nil, true, "not deleted without an answer")
+    eq(ns.DataTools.Delete(ns.characterKey), false, "current character is cleared, not deleted")
+    env.autoConfirm = true
+    findButton(env, "Delete"):Click()
+    eq(ns.db.characters["Forever:Aeloria"], nil, "deleted")
+    findButton(env, "Clear"):Click()
+    eq(string.find(env.popups[#env.popups], "Nedisan", 1, true) ~= nil, true, "name in the question")
+    eq(#shots(ns), 0, "current cleared")
+    eq(ns.character.name, "Nedisan", "identity kept")
+    eq(type(ns.character.journey.started), "number", "tracking starts again")
+    eq(ns.Locations.Total(), 1, "current zone recorded again")
+    findButton(env, "Export statistics"):Click()
+    eq(string.find(dialogText(), "Nedisan", 1, true) ~= nil, true, "export has the character")
+    findButton(env, "Backup"):Click()
+    eq(string.sub(dialogText(), 1, 5), "FMB1:", "backup text")
+    _G.GetAddOnMemoryUsage = function() return 248.4 end
+    _G.UpdateAddOnMemoryUsage = function() end
+    findButton(env, "General"):Click()
+    findButton(env, "Data"):Click()
+    eq(hasText(env, "248 KB"), true, "memory in KB")
+    noErrors(ns)
+end)
+
+test("v0.10 about: no invented links; diagnostics without personal data", function()
+    local env, ns = start()
+    ns.UI.Toggle("settings")
+    findButton(env, "About"):Click()
+    eq(hasText(env, "Project pages are not published yet. Links appear here when they exist."), true, "note")
+    eq(hasText(env, "Copy link"), false, "no links")
+    eq(hasText(env, "Author"), false, "no invented author")
+    eq(hasText(env, "License"), false, "no invented license")
+    local report = ns.DataTools.DiagnosticsText()
+    for _, private in ipairs({ "Nedisan", "Forever:", "Player-1-0000ABCD", "Heroes" }) do
+        eq(string.find(report, private, 1, true), nil, "no " .. private)
+    end
+    eq(string.find(report, "1.60.1 (71037)", 1, true) ~= nil, true, "client build")
+    eq(string.find(report, "16001", 1, true) ~= nil, true, "interface")
+    for _, frame in ipairs(env.frames) do
+        if type(rawget(frame, "title")) == "table" and frame.title.text == "Technical information" then
+            frame:Click()
+        end
+    end
+    for _, frame in ipairs(env.frames) do
+        if type(rawget(frame, "items")) == "function" and frame:IsShown() then
+            frame:Scroll(-100) -- to the end of the page
+        end
+    end
+    eq(hasText(env, "Screenshot engine"), true, "technical block opens")
+    findButton(env, "Copy diagnostics"):Click()
+    eq(string.find(dialogText(), "ForeverMemories diagnostics", 1, true) ~= nil, true, "copy box")
+    ns.ProjectInfo.links[1].url = "https://example.invalid/repo"
+    findButton(env, "General"):Click()
+    findButton(env, "About"):Click()
+    eq(hasText(env, "Copy link"), true, "a set link is shown")
+    ns.ProjectInfo.links[1].url = nil
+    noErrors(ns)
+end)
+
+test("v0.10 changelog: generated from CHANGELOG.md, newest open, what's new mark", function()
+    local builder = assert(loadfile("tools/changelog.lua"))("changelog")
+    local current = assert(io.open("Modules/ChangelogData.lua")):read("*a")
+    eq(builder.Build(".") == current, true, "Modules/ChangelogData.lua is up to date (run lua5.1 tools/changelog.lua)")
+    local env, ns = start()
+    eq(ns.CHANGELOG[1].version, ns.version, "newest entry is this version")
+    eq(ns.UI.WhatsNew(), false, "fresh install: nothing new")
+    local saved = ns.db
+    saved.ui.seenVersion = "0.9.0"
+    local env2, ns2 = start({ savedDB = saved })
+    eq(ns2.UI.WhatsNew(), true, "after an update")
+    ns2.UI.Toggle("settings")
+    findButton(env2, "Changelog"):Click()
+    eq(hasText(env2, "v" .. ns2.version), true, "version card")
+    eq(hasText(env2, "Added"), true, "newest is open")
+    eq(ns2.UI.WhatsNew(), false, "seen")
+    noErrors(ns2)
+end)
+
+test("v0.10 key bindings: four actions, no default keys, safe clean shot", function()
+    local xml = assert(io.open("Bindings.xml")):read("*a")
+    for _, name in ipairs({ "TOGGLE", "SHOT", "AUTOCAPTURE", "CLEANSHOT" }) do
+        eq(string.find(xml, 'name="FOREVERMEMORIES_' .. name .. '"', 1, true) ~= nil, true, name)
+    end
+    eq(string.find(xml, "default", 1, true), nil, "no default keys")
+    local env, ns = start()
+    eq(BINDING_NAME_FOREVERMEMORIES_CLEANSHOT, "Take Clean Screenshot", "name in the key bindings menu")
+    ForeverMemories_ToggleAutoCapture()
+    eq(ns.db.settings.enabled, false, "paused")
+    ForeverMemories_ToggleAutoCapture()
+    eq(ns.db.settings.enabled, true, "resumed")
+    ForeverMemories_CleanShot()
+    env.advance(3)
+    eq(env.uiShownAtShot, false, "UI hidden for the clean shot")
+    eq(UIParent:IsShown(), true, "UI back")
+    eq(#shots(ns), 1, "saved")
+    eq(ns.db.settings.mode, "normal", "setting not changed")
+    env.combat = true
+    ForeverMemories_CleanShot()
+    env.advance(3)
+    eq(env.uiShownAtShot, true, "combat: never hides the UI")
+    eq(#shots(ns), 2, "normal shot in combat")
+    ForeverMemories_ToggleWindow()
+    eq(ns.UI.IsShown(), true, "window")
+    noErrors(ns)
+end)
+
+test("v0.10 settings pages in Russian: all four build without errors", function()
+    local env, ns = start({ locale = "ruRU" })
+    ns.UI.Toggle("settings")
+    for _, name in ipairs({ "Общие", "Данные", "Об аддоне", "Обновления" }) do
+        findButton(env, name):Click()
+    end
+    findButton(env, "Техническая информация")
+    eq(BINDING_NAME_FOREVERMEMORIES_TOGGLE, "Открыть / закрыть ForeverMemories", "binding name")
+    noErrors(ns)
+end)
+
+---------------------------------------------------------------------------
+-- v0.11.0: Location Analytics & Search
+---------------------------------------------------------------------------
+test("v0.11 zone stats: time, steps, visits per zone; reload, sub-zone, AFK, dungeon", function()
+    local env, ns = start()
+    local zs = ns.character.zoneStats
+    eq(type(zs.since), "number", "tracking start recorded")
+    local elwynn = ns.API.ZoneKey()
+    eq(zs.zones[elwynn].visits, 1, "arrival at login")
+    walk(env, 60)
+    near(zs.zones[elwynn].time, 60, 1.5, "active time in the zone")
+    near(zs.zones[elwynn].steps, ns.character.steps.total, 0.01, "every step belongs to the zone")
+    env.fire("ZONE_CHANGED_NEW_AREA") -- same map: a sub-zone or a repeat
+    eq(zs.zones[elwynn].visits, 1, "no new visit inside the same zone")
+    env.afk = true
+    env.advance(60)
+    env.afk = false
+    near(zs.zones[elwynn].time, 60, 2.5, "AFK not counted")
+    env.mapID, env.zone = 52, "Westfall"
+    env.fire("ZONE_CHANGED_NEW_AREA")
+    local westfall = ns.API.ZoneKey()
+    eq(zs.zones[westfall].visits, 1, "Westfall visit")
+    env.advance(30)
+    env.mapID, env.zone = 37, "Elwynn Forest"
+    env.fire("ZONE_CHANGED_NEW_AREA")
+    eq(zs.zones[elwynn].visits, 2, "coming back is a new visit")
+    env.instanceType, env.zone = "party", "The Deadmines"
+    env.fire("ZONE_CHANGED_NEW_AREA")
+    local before = zs.zones[elwynn].time
+    env.advance(30)
+    eq(zs.zones[elwynn].time, before, "dungeon time is not given to a zone")
+    env.instanceType, env.zone = "none", "Elwynn Forest"
+    env.fire("ZONE_CHANGED_NEW_AREA")
+    eq(zs.zones[elwynn].visits, 3, "leaving the dungeon is an arrival")
+    -- /reload: the same visit goes on.
+    local _, ns2 = start({ savedDB = ns.db })
+    eq(ns2.character.zoneStats.zones[elwynn].visits, 3, "reload is not a visit")
+    noErrors(ns2)
+end)
+
+test("v0.11 location card: stats from tracked and existing data, latest shots", function()
+    local env, ns = start()
+    walk(env, 30)
+    ns.Engine.ManualShot()
+    env.advance(2)
+    levelUp(env, 11)
+    env.advance(3)
+    local card = ns.ZoneStats.Card(12, 5) -- Elwynn Forest
+    eq(card.name, "Elwynn Forest", "name")
+    eq(card.region, "Eastern Kingdoms", "continent")
+    eq(card.visited, true, "visited")
+    eq(card.visits, 1, "visits")
+    eq(card.days, 1, "days")
+    eq(card.shots, 2, "screenshots from history")
+    eq(#card.latest, 2, "latest")
+    eq(card.latest[1].ev, "LEVEL", "newest first")
+    eq(card.steps, math.floor(ns.Steps.Total()), "steps")
+    eq(card.time >= 30, true, "time")
+    eq(type(card.firstAt), "number", "first visit")
+    eq(card.lastAt >= card.firstAt, true, "last visit")
+    local never = ns.ZoneStats.Card(10, 5) -- Duskwood
+    eq(never.visited, false, "not visited")
+    eq(never.visits, 0, "no visits")
+    eq(never.firstAt, nil, "no invented date")
+    -- Old data without tracking: no time is invented.
+    local old = { schemaVersion = 5, settings = {}, characters = { ["Forever:Nedisan"] = {
+        name = "Nedisan", realm = "Forever", visited = { ["map:52"] = true }, visitedAt = { ["map:52"] = 1700000000 },
+        locations = { days = { ["2023-11-14"] = { ["map:52"] = { name = "Westfall", t = 1700000000 } } } } } } }
+    local db = ns.Database.Load(old)
+    eq(db.characters["Forever:Nedisan"].zoneStats, nil, "nothing created by loading")
+    ns.UI.Toggle("history")
+    ns.UI.ShowTab("history", "zones")
+    local row
+    for _ = 1, 40 do
+        for _, frame in ipairs(env.frames) do
+            if rawget(frame, "area") == 12 and frame:IsShown() then row = frame end
+        end
+        if row then break end
+        for _, frame in ipairs(env.frames) do
+            if type(rawget(frame, "items")) == "function" then frame:Scroll(-1) end
+        end
+    end
+    eq(row ~= nil, true, "Elwynn row")
+    row:Click()
+    eq(hasText(env, "<  Back to locations"), true, "card open")
+    eq(hasText(env, "Active time here"), true, "time row")
+    noErrors(ns)
+end)
+
+test("v0.11 screenshot search: text, type, manual/passive, location, dates, order, reset", function()
+    local env, ns = start()
+    ns.Engine.ManualShot()
+    env.advance(2)
+    env.fire("CHAT_MSG_LOOT", "You receive loot: |cffa335ee|Hitem:11::|h[Purple Axe]|h|r.")
+    env.advance(3)
+    env.mapID, env.zone = 52, "Westfall"
+    env.fire("ZONE_CHANGED_NEW_AREA")
+    env.advance(3)
+    levelUp(env, 11)
+    env.advance(3)
+    local n = #shots(ns)
+    eq(n, 4, "manual, epic, new zone, level")
+    local H = ns.History
+    local function search(f)
+        local filter = { text = "", type = "all", order = "new" }
+        for k, v in pairs(f) do filter[k] = v end
+        return H.Search(filter)
+    end
+    eq(#search({}), 4, "all")
+    eq(search({})[1].ev, "LEVEL", "newest first")
+    eq(search({ order = "old" })[1].ev, "MANUAL", "oldest first")
+    eq(#search({ text = "purple" }), 1, "item name")
+    eq(#search({ text = "WESTF" }), 2, "zone name, any case")
+    eq(#search({ text = "epic" }), 1, "event name")
+    eq(#search({ type = "MANUAL" }), 1, "manual")
+    eq(#search({ type = "PASSIVE" }), 0, "passive")
+    eq(#search({ type = "LEVEL" }), 1, "one type")
+    eq(#search({ zone = "Elwynn Forest" }), 2, "location")
+    local today = ns.Util.DayKey(ns.API.Time())
+    eq(#search({ from = today, to = today }), 4, "today")
+    eq(#search({ to = ns.Util.DayBefore(today, 1) }), 0, "before today")
+    eq(ns.Util.ParseDate("25.11.2026"), "2026-11-25", "date")
+    eq(ns.Util.ParseDate("31.02.2026"), nil, "no such day")
+    eq(ns.Util.ParseDate("abc"), nil, "not a date")
+    -- Window.
+    ns.UI.Toggle("history")
+    ns.UI.ShowTab("history", "shots")
+    eq(hasText(env, "Found: 4"), true, "count")
+    findButton(env, "Filters  >"):Click()
+    eq(hasText(env, "All event types"), true, "filters open")
+    findButton(env, "All event types"):Click()
+    local manual
+    for _, frame in ipairs(env.frames) do
+        if type(rawget(frame, "text")) == "table" and frame.text.text == "Manual screenshot" and rawget(frame, "value") then
+            manual = frame
+        end
+    end
+    manual:Click()
+    eq(hasText(env, "Found: 1"), true, "filtered")
+    for _, frame in ipairs(env.frames) do
+        if frame.kind == "Button" and type(rawget(frame, "label")) == "table" and frame.label.text == "Reset" then
+            frame:Click()
+        end
+    end
+    eq(hasText(env, "Found: 4"), true, "reset")
+    noErrors(ns)
+end)
+
+---------------------------------------------------------------------------
+-- v0.12.0: Adventure Records
+---------------------------------------------------------------------------
+test("v0.12 last adventure: counters, logout end, reload continues, crash marked", function()
+    local env = Mock.new()
+    local ns = env.login(".")
+    walk(env, 60)
+    ns.Engine.ManualShot()
+    env.advance(3)
+    levelUp(env, 11)
+    env.advance(5)
+    env.mapID, env.zone = 52, "Westfall"
+    env.fire("ZONE_CHANGED_NEW_AREA")
+    env.advance(30)
+    local taken = #ns.character.shots
+    local steps = math.floor(ns.character.steps.total)
+    -- /reload: PLAYER_LOGOUT fires, but the session goes on.
+    env.fire("PLAYER_LOGOUT")
+    local t1 = ns.API.Time()
+    local env2 = Mock.new({ savedDB = ns.db })
+    env2.unix = t1 + 20
+    env2.mapID, env2.zone = 52, "Westfall"
+    local ns2 = env2.login(".")
+    eq(ns2.Activity.LastSession(), nil, "reload does not close the session")
+    eq(ns2.Activity.Session().ended, nil, "possible end cleared")
+    env2.advance(60)
+    env2.fire("PLAYER_LOGOUT")
+    local logout = ns2.API.Time()
+    -- Next evening: the session is closed with the reported end.
+    local env3 = Mock.new({ savedDB = ns2.db })
+    env3.unix = logout + 5 * 3600
+    local ns3 = env3.login(".")
+    local last = ns3.Activity.LastSession()
+    eq(last ~= nil, true, "closed")
+    eq(last.endKnown, true, "end reported by the game")
+    eq(last.finish, logout, "end = logout")
+    eq(last.shots, taken, "screenshots of the session")
+    eq(last.steps, steps, "steps of the session")
+    eq(last.zones, 2, "two zones")
+    eq(last.levels, 1, "one level")
+    near(last.active, 60 + 3 + 5 + 30 + 60, 4, "active time")
+    -- A crash: no PLAYER_LOGOUT; the last activity is kept and marked.
+    env3.advance(120)
+    local lastActive = ns3.Activity.Session().last
+    local t3 = ns3.API.Time()
+    local env4 = Mock.new({ savedDB = ns3.db })
+    env4.unix = t3 + 5 * 3600
+    local ns4 = env4.login(".")
+    last = ns4.Activity.LastSession()
+    eq(last.endKnown, false, "end unknown after a crash")
+    eq(last.finish, lastActive, "last activity, not an invented end")
+    ns4.UI.Toggle()
+    eq(hasText(env4, "Last adventure"), true, "card")
+    ns4.UI.TabView("home").LastAdventure:Click()
+    eq(hasText(env4, "Last activity"), true, "marked as last activity")
+    noErrors(ns4)
+end)
+
+test("v0.12 records: best day, first date on a tie, streak, no data", function()
+    local env, ns = start()
+    local r = ns.Records.Get()
+    eq(r.shots.value, nil, "no screenshots yet: no data")
+    eq(r.session.value, nil, "no session yet")
+    local today = ns.Util.DayKey(ns.API.Time())
+    local d = function(n) return ns.Util.DayBefore(today, n) end
+    local c = ns.character
+    c.steps.days = { [d(5)] = 100, [d(4)] = 300, [d(2)] = 300, [d(1)] = 50 }
+    c.shotsByDay = { [d(4)] = 2, [d(2)] = 7 }
+    c.playtime.days = { [d(5)] = 600, [d(4)] = 1200 }
+    ns.Records.Invalidate()
+    r = ns.Records.Get()
+    eq(r.steps.value, 300, "most steps") eq(r.steps.day, d(4), "tie keeps the first date")
+    eq(r.shots.value, 7, "most shots") eq(r.shots.day, d(2), "its day")
+    eq(r.playtime.value, 1200, "most play")
+    eq(r.streak.value, 3, "longest run: two days ago, yesterday, today")
+    eq(r.streak.day, d(2), "run start") eq(r.streak.last, today, "run end")
+    ns.UI.Toggle("history", "records")
+    eq(hasText(env, "Personal records"), true, "records view")
+    eq(hasText(env, "Most steps in a day"), true, "row")
+    noErrors(ns)
+end)
+
+test("v0.12 all characters: totals, union of zones, read-only view, back to current", function()
+    local env, ns = start()
+    walk(env, 30)
+    local otherKey = "Other Realm:Thrall"
+    local other = ns.Database.Character(ns.db, otherKey, { name = "Thrall", realm = "Other Realm", class = "SHAMAN" })
+    other.shotsTotal = 5
+    other.steps.total = 1000
+    other.playtime.total = 3600
+    for key in pairs(ns.character.visited) do
+        other.visited[key] = true -- the same zone: counted once
+    end
+    other.visited["map:999"] = true
+    local mine = ns.DataTools.Summary(ns.character)
+    local t = ns.DataTools.AccountTotals()
+    eq(t.characters, 2, "characters")
+    eq(t.shots, mine.shots + 5, "shots summed")
+    eq(t.steps, mine.steps + 1000, "steps summed")
+    eq(t.zones, mine.zones + 1, "union of zones")
+    eq(t.playtime, mine.playtime + 3600, "addon time summed")
+    ns.UI.Toggle("history")
+    findButton(env, "All characters"):Click()
+    eq(hasText(env, "Saved characters"), true, "list")
+    eq(hasText(env, "Active play (addon)"), true, "addon time, not /played")
+    local row
+    for _, frame in ipairs(env.frames) do
+        if rawget(frame, "key") == otherKey then row = frame end
+    end
+    eq(row ~= nil, true, "row of the other character")
+    local current = ns.character
+    row:Click()
+    eq(hasText(env, "Thrall"), true, "viewed character in the header")
+    eq(hasText(env, "Read-only view"), true, "read-only")
+    eq(ns.character, current, "current character restored after drawing")
+    for _, name in ipairs({ "Overview", "Screenshots", "Steps", "Locations", "Playtime", "Journey", "Records" }) do
+        findButton(env, name):Click()
+        eq(ns.character, current, "restored after " .. name)
+    end
+    findButton(env, "<  Back to my character"):Click()
+    eq(hasText(env, "Read-only view"), false, "back")
+    -- Opening the tab again starts with the current character.
+    findButton(env, "All characters"):Click()
+    ns.UI.ShowTab("home")
+    ns.UI.ShowTab("history")
+    eq(select(1, ns.UI.TabView("history").Mode()), "character", "reset to the character")
+    noErrors(ns)
+end)
+
+test("v0.12 history: seven sub-views in two rows, all build in Russian", function()
+    local env, ns = start({ locale = "ruRU" })
+    ns.UI.Toggle("history")
+    for _, name in ipairs({ "Обзор", "Рекорды", "Все персонажи", "Персонаж" }) do
+        local button = findButton(env, name)
+        eq(button ~= nil, true, name)
+        button:Click()
+    end
+    noErrors(ns)
+end)
+
+---------------------------------------------------------------------------
+-- v0.13.0: Memories & Achievements
+---------------------------------------------------------------------------
+test("v0.13 on this day: week, month, year ago; no duplicates; hidden when empty", function()
+    local env, ns = start()
+    local M = ns.Memories
+    eq(M.AddMonths("2026-03-31", -1), nil, "31 February does not exist")
+    eq(M.AddMonths("2026-03-31", -1, true), "2026-02-28", "clamped")
+    eq(M.AddMonths("2024-02-29", -12), nil, "29 February of a non-leap year")
+    eq(M.AddMonths("2026-01-15", -1), "2025-12-15", "across a year")
+    eq(#M.OnThisDay(), 0, "nothing to remember")
+    ns.UI.Toggle("history", "overview")
+    eq(hasText(env, "On this day"), false, "block hidden")
+    local today = ns.Util.DayKey(ns.API.Time())
+    local noon = function(day) return ns.Util.DayStart(day) + 12 * 3600 end
+    local week, year = noon(ns.Util.DayBefore(today, 7)), noon(M.AddMonths(today, -12))
+    local c = ns.character
+    table.insert(c.shots, 1, { t = week, ev = "LEVEL", zone = "Westfall", info = 20 })
+    table.insert(c.shots, 2, { t = week + 600, ev = "BOSS", zone = "The Deadmines", info = "Edwin VanCleef" })
+    table.insert(c.journey.events, { t = week + 30, kind = "LEVEL", zone = "Westfall", info = 20 })
+    table.insert(c.journey.events, { t = year, kind = "LEVEL", zone = "Elwynn Forest", info = 5 })
+    M.Invalidate()
+    local periods = M.OnThisDay()
+    eq(#periods, 2, "week and year, no month")
+    eq(periods[1].period, "week", "week first")
+    eq(#periods[1].items, 2, "level once (journey), boss shot")
+    eq(periods[1].items[2].detail, "Edwin VanCleef", "details kept")
+    eq(periods[2].period, "year", "year")
+    ns.UI.ShowTab("home")
+    ns.UI.ShowTab("history", "overview")
+    local seen, label = false, false
+    for _ = 1, 20 do
+        seen = seen or hasText(env, "On this day")
+        label = label or hasText(env, "A week ago")
+        for _, frame in ipairs(env.frames) do
+            if type(rawget(frame, "items")) == "function" and frame:IsShown() then
+                frame:Scroll(-1)
+            end
+        end
+    end
+    eq(seen, true, "block shown")
+    eq(label, true, "period label")
+    noErrors(ns)
+end)
+
+test("v0.13 anniversary: week, months, years from the first login; not every day", function()
+    local env, ns = start()
+    local M = ns.Memories
+    local today = ns.Util.DayKey(ns.API.Time())
+    local at = function(day) return ns.Util.DayStart(day) + 10 * 3600 end
+    local journey = ns.character.journey
+    eq(M.Anniversary(), nil, "first day: nothing")
+    journey.started = at(ns.Util.DayBefore(today, 7))
+    eq(M.Anniversary().kind, "WEEK", "one week")
+    journey.started = at(M.AddMonths(today, -3))
+    eq(M.Anniversary().kind, "MONTHS3", "three months")
+    journey.started = at(M.AddMonths(today, -24))
+    local a = M.Anniversary()
+    eq(a.kind, "YEAR", "yearly") eq(a.years, 2, "two years")
+    journey.started = at(ns.Util.DayBefore(today, 8))
+    eq(M.Anniversary(), nil, "an ordinary day")
+    for _ = 1, 3 do
+        ns.Engine.ManualShot()
+        env.advance(5)
+    end
+    journey.started = at(ns.Util.DayBefore(today, 7))
+    ns.UI.Toggle()
+    eq(hasText(env, "One week of memories"), true, "card on Home")
+    local rows = 0
+    for _, frame in ipairs(env.frames) do
+        if rawget(frame, "title") and rawget(frame, "time") and frame:IsShown() and frame.title.text == "Manual screenshot" then
+            rows = rows + 1
+        end
+    end
+    eq(#ns.History.Today(3), 3, "three shots today")
+    eq(rows, 2, "two latest screenshots next to the card")
+    noErrors(ns)
+end)
+
+test("v0.13 achievements: progress, earned date, unknown date for old progress, never revoked", function()
+    local env, ns = start()
+    local function get(id)
+        for _, a in ipairs(ns.Achievements.Get()) do
+            if a.def.id == id then return a end
+        end
+    end
+    eq(#ns.Achievements.LIST, 15, "fifteen achievements")
+    eq(get("FIRST_MEMORY").done, false, "no shot yet")
+    ns.Engine.ManualShot()
+    env.advance(3)
+    local first = get("FIRST_MEMORY")
+    eq(first.done, true, "first screenshot")
+    eq(type(first.at), "number", "date known: earned while playing")
+    eq(get("PHOTOGRAPHER").value, 1, "progress 1") eq(get("PHOTOGRAPHER").target, 100, "of 100")
+    -- Progress from before 0.13.0: earned, date unknown.
+    local saved = ns.db
+    local char = saved.characters[ns.characterKey]
+    char.achievements = nil
+    char.shotsTotal = 150
+    local _, ns2 = start({ savedDB = saved })
+    local function get2(id)
+        for _, a in ipairs(ns2.Achievements.Get()) do
+            if a.def.id == id then return a end
+        end
+    end
+    eq(get2("PHOTOGRAPHER").done, true, "earned before")
+    eq(get2("PHOTOGRAPHER").at, nil, "date not invented")
+    eq(ns2.character.achievements.done.PHOTOGRAPHER, 0, "stored as unknown")
+    -- Never revoked: a stored achievement stays even if progress is lower.
+    ns2.character.achievements.done.EK_EXPLORER = 12345
+    eq(get2("EK_EXPLORER").done, true, "kept")
+    ns2.character.shotsTotal = 0
+    eq(get2("MEMORY_KEEPER").done, false, "not earned")
+    eq(get2("PHOTOGRAPHER").done, true, "still earned")
+    noErrors(ns2)
+end)
+
+test("v0.13 achievements view: eight sub-views, filters, English and Russian", function()
+    for _, locale in ipairs({ "enUS", "ruRU" }) do
+        local env, ns = start({ locale = locale })
+        ns.UI.Toggle("history", "achievements")
+        local names = locale == "enUS" and { "Completed", "In progress", "All" } or { "Выполненные", "В процессе", "Все" }
+        for _, name in ipairs(names) do
+            findButton(env, name):Click()
+        end
+        eq(hasText(env, locale == "enUS" and "Photography" or "Фотографирование"), true, "group heading")
+        eq(findButton(env, locale == "enUS" and "Achievements" or "Достижения") ~= nil, true, "eighth button")
+        noErrors(ns)
+    end
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))
