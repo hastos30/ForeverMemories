@@ -1,35 +1,87 @@
-# Архитектура
-## 1. Проверка платформы (блокирующий этап)
-В клиенте Forever зафиксировать GetBuildInfo(), фактический TOC Interface, доступность Screenshot(), событий результата, таймеров, SavedVariables, состояния боя/AFK/загрузки, безопасного управления UI и получения зоны. Кандидаты на события: PLAYER_LEVEL_UP, ZONE_CHANGED_NEW_AREA, PLAYER_ENTERING_WORLD, PLAYER_LEAVING_WORLD, PLAYER_REGEN_DISABLED/ENABLED, PLAYER_DEAD, CHAT_MSG_LOOT, ENCOUNTER_END, SCREENSHOT_SUCCEEDED/FAILED. Это не подтверждённый список для Forever. Проверить регистрацию, полезную нагрузку, права доступа и реальные сценарии. Записать результаты в API_COMPATIBILITY.md (сборка, дата, тест, результат). Не обходить protected/secret values и не предполагать, что API других веток идентичен. Если результат съёмки не доступен, обозначать unconfirmed. Если сам Screenshot недоступен, остановить релиз автоматической съёмки.
-## 2. Структура
+# Архитектура (v0.5.0)
+
+## 1. Структура
 ```
 ForeverMemories/
-  ForeverMemories.toc
-  Core/{Init,API,Database,Events,Registry,Logger}.lua
-  Capture/{Rules,Queue,Engine,Strategies,UIState}.lua
-  Modules/{Journey,Journal,Profiles,Notifications,Statistics}.lua
-  UI/{Main,Rules,Journal,Minimap,Settings,Diagnostics}.lua
-  Locales/{enUS,ruRU}.lua
-  Media/
-  Bindings.xml
-  tests/
+  ForeverMemories.toc   Bindings.xml (не в TOC)
+  Core/     API, Logger, Util, Database, Init, Registry, Events, Commands
+  Capture/  Rules, Queue, UIState, Engine
+  Modules/  History, Steps, Notifications
+  UI/       Widgets, Main (окно + Главная), Capture, History, Settings, Minimap
+  Locales/  enUS, ruRU
+  tests/    mock_wow.lua, run.lua (в игру не копируются)
   docs/
 ```
-TOC содержит проверенный Interface, SavedVariables ForeverMemoriesDB, порядок загрузки файлов. Единое пространство имён addonName, ns. Без обязательных библиотек.
-## 3. Контракты модулей
-API: обёртки возвращают value либо nil,reason; только здесь привязка к клиентским API. Events: один dispatcher, регистрация только поддерживаемых событий; нормализация в {type,key,ts,character,zone,payload}. Registry: описание триггеров и capability. Rules: чистая функция evaluate(event,profile,context) → request или reason. Queue: push/pop/expire/cancel, ограниченная очередь. Engine: один активный request; управление таймерами и результатами. UIState: snapshot/prepare/restore, восстановление только изменённого аддоном состояния. Journal: append/query/update/trim. Profiles: resolve/apply/reset. UI: отображение, не вызывает Screenshot напрямую. Logger: кольцевой буфер 200 сообщений, без приватного чата.
-## 4. Машина состояний
-IDLE → QUEUED → PREPARING → CAPTURING → WAIT_RESULT → RESTORING → COMPLETED → IDLE. Серия: после восстановления и интервала повторить PREPARING. Ошибка, таймаут, отмена, вход в бой или загрузка: RESTORING → завершение/пропуск. Использовать generation token для отмены устаревших таймеров; callbacks проверяют текущий token. Перед каждым кадром заново проверить состояние и лимиты. Не начинать следующий кадр, пока предыдущий не подтверждён или не истёк таймаут (проектно 5 с). При таймауте не повторять автоматически, пометить unconfirmed, выдержать карантин результатов 5 с; при неоднозначности не приписывать чужой результат своему кадру. Нативные ручные скриншоты клиента могут дать глобальный сигнал без ID: документировать ограничение корреляции, не заявлять абсолютную точность. Восстановление UI идемпотентно; если безопасное восстановление не доказано в клиенте, отключить clean. Никаких бесконечных циклов/постоянного OnUpdate.
-## 5. Данные
+Удалены в 0.5.0: `Modules/Profiles`, `Journey`, `Journal`, `Statistics`, `Capture/Strategies`,
+`UI/Rules`, `Journal`, `ManualPanel`, `Diagnostics`.
+
+## 2. Модули и контракты
+| Модуль | Ответственность |
+|---|---|
+| API | Единственное место вызова функций клиента. Возвращает значение или nil; secret values никогда не используются в арифметике. |
+| Init | Пространство имён, один диспетчер событий (`ns.On`), `SafeCall`, локализация, `ns.Num`/`ns.Count`, порядок старта (`onReady`, `onLogin`). |
+| Database | Загрузка, миграции (1→2→3), проверка и ремонт ForeverMemoriesDB. Чистая логика. |
+| Registry | 9 событий + MANUAL: внутренние задержка, приоритет, иконка; доступность в клиенте. |
+| Events | Событие клиента → `{type, key, info, character, zone}` → Engine. |
+| Rules | Чистая функция: событие + настройки → запрос или причина отказа. |
+| Queue | Ограниченная очередь (20) с приоритетом, объединением (0,5 с) и TTL. |
+| UIState | Скрыть/вернуть интерфейс вокруг снимка; в бою не скрывает; чужое скрытие не трогает. |
+| Engine | Один активный запрос, один снимок; подтверждение по SCREENSHOT_SUCCEEDED; лимиты 60/час и 300/сессию. |
+| History | Записи и счётчики снимков текущего персонажа; тексты записей. |
+| Steps | Шагомер: свой таймер 0,5 с, независим от Engine. |
+| Notifications | Тост после сохранённого снимка. |
+| UI | Только отображение. Снимки — через `Engine.ManualShot`. |
+
+Автосъёмка и шагомер не вызывают друг друга. Каждый обработчик события и каждый тик шагомера
+выполняются в `pcall`: ошибка одного не останавливает другой. После 10 ошибок шагомер
+останавливается до перезагрузки (и пишет это в лог), автосъёмка продолжает работать.
+
+## 3. Поток снимка
+```
+событие клиента → Events → Engine.Submit → Rules.Evaluate → Queue.Push
+  → (задержка события) → Engine: PREPARING (UIState.Prepare) → CAPTURING (Screenshot)
+  → WAIT_RESULT → SCREENSHOT_SUCCEEDED → History.AddShot → Notifications
+                 → FAILED / таймаут 5 с → в лог, счётчики не меняются
+```
+Таймеры несут token: смена состояния делает старые таймеры пустыми. Загрузка, пауза —
+автоматические запросы отменяются. Print Screen игрока считается как «unattributed».
+
+## 4. Шагомер
+Каждые 0,5 с (`Steps.Measure`):
+1. Такси, транспорт, полёт, плавание → якорь сброшен, ничего не считаем. Если клиент не
+   ответил (функции нет или secret) — тоже ничего.
+2. Собственная скорость 0 (стоит, или везёт корабль/дирижабль) → якорь = текущая точка.
+3. Позиция: `UnitPosition` (ярды, пространство инстанса) или карта → мир
+   (`C_Map.GetPlayerMapPosition` + `GetWorldPosFromMapPos`, пространство континента).
+   Сравниваются только точки одного пространства.
+4. Расстояние больше `скорость × время × 1,5 + 1 ярд` → скачок (телепорт, рывок, транспорт) —
+   не считаем.
+5. Нет координат → `скорость × время` (при выполненном п. 1).
+6. ярды × 0,9144 / 0,75 → шаги дня (`date("%Y-%m-%d")` по часам компьютера) и общий итог.
+
+Загрузка, вход в мир, смена зоны — сброс якоря. Окно обновляет только число шагов, и только
+когда меняется целая часть.
+
+## 5. Данные (схема 3)
 ```
 ForeverMemoriesDB = {
- schemaVersion=1,
- settings={enabled=true,locale="auto",notifications=true},
- profiles={Default={rules={},limits={},journey={}}},
- characters={ ["realm:character"]={profile="Default",visited={},firstEvents={}} },
- journal={}, counters={}, ui={}
+  schemaVersion = 3,
+  settings = { enabled, mode = "normal"|"clean", events = { LEVEL = true, ... },
+               notifications, sound, minimap, minimapAngle, locale, scale },
+  ui = { point = {...} },
+  counters = { unattributed },
+  characters = { ["Сервер:Имя"] = {
+      name, realm, class, guid,
+      shots = { { t, ev, zone, info, manual } ... },   -- до 5000, старые удаляются
+      shotsTotal, shotsByDay = { ["2026-11-24"] = n }, shotZones = { [зона] = true },
+      visited = { [ключ зоны] = true }, zonesSeeded, guild,
+      steps = { total, days = { ["2026-11-24"] = x }, since } } },
+  legacy = { записи 0.4.2 без владельца },
 }
 ```
-Не сохранять секретные/непрозрачные игровые значения. Проверять типы, диапазоны и неизвестные ключи при загрузке. Миграции schemaVersion последовательные, тестируемые; повреждённые ветки заменить безопасными defaults с диагностикой. SavedVariables сохраняются клиентом, не гарантировать запись при аварийном завершении. Счётчики лимитов обновлять по фактическим вызовам съёмки, включая неподтверждённые; статистику успешных кадров вести отдельно. Профили применяются атомарно, активная операция использует snapshot конфигурации.
+Счётчики не урезаются вместе с историей, поэтому «Всего снимков» не уменьшается.
+
 ## 6. Команды
-/fm — окно; /fm on, off, toggle — автоматика; /fm shot — ручной кадр; /fm status — состояние; /fm debug — диагностика. Неизвестная команда показывает справку. Горячая клавиша регистрируется через поддерживаемый клиентом механизм.
+`/fm` окно · `/fm on|off|toggle` · `/fm shot` · `/fm status` · `/fm debug` · `/fm log` ·
+`/fm ui` (аварийно вернуть интерфейс, работает даже если аддон не загрузился) · `/fm reset`
+(окно в центр). Горячие клавиши — Bindings.xml.

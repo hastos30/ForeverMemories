@@ -20,6 +20,17 @@ local function newFrame(env, kind, name)
     end
     function methods:SetScript(script, fn) self.scripts[script] = fn end
     function methods:GetScript(script) return self.scripts[script] end
+    function methods:HookScript(script, fn)
+        local before = self.scripts[script]
+        self.scripts[script] = function(...)
+            if before then before(...) end
+            fn(...)
+        end
+    end
+    function methods:SetValue(v) self.value = v; if self.scripts.OnValueChanged then self.scripts.OnValueChanged(self, v) end end
+    function methods:GetValue() return self.value end
+    function methods:IsOwned(owner) return self.owner == owner end
+    function methods:SetOwner(owner) self.owner = owner end
     function methods:SetChecked(value) self.checked = value and true or false end
     function methods:GetChecked() return self.checked end
     function methods:SetText(value) self.text = value end
@@ -44,7 +55,11 @@ local function newFrame(env, kind, name)
     methods.StartMoving = function() end
     methods.StopMovingOrSizing = function() end
     setmetatable(frame, { __index = function(_, key)
-        return methods[key] or function() end
+        -- Like the client: methods start with a capital letter; any other
+        -- missing field is nil.
+        if methods[key] then return methods[key] end
+        if type(key) == "string" and string.match(key, "^%u") then return function() end end
+        return nil
     end })
     if name then _G[name] = frame end
     env.frames[#env.frames + 1] = frame
@@ -58,6 +73,10 @@ function Mock.new(options)
         screenshotMode = options.screenshotMode or "async",
         combat = false, afk = false, level = 10, maxLevel = 60, inGuild = false, forms = 2,
         class = "DRUID", zone = "Elwynn Forest", mapID = 37, position = { 0.5, 0.5 },
+        -- Movement: world position in yards (UnitPosition), own speed in yards/s.
+        world = { x = 0, y = 0, instance = 0 }, speed = 0, unitPosition = true,
+        swimming = false, flying = false, taxi = false, vehicle = false,
+        instanceType = "none", guid = "Player-1-0000ABCD", guildName = "Heroes",
         unknownEvents = options.unknownEvents or {}, screenshotCalls = 0,
     }
 
@@ -74,10 +93,21 @@ function Mock.new(options)
     _G.GetRealmName = function() return "Forever" end
     _G.GetRealZoneText = function() return env.zone end
     _G.GetLocale = function() return options.locale or "enUS" end
-    _G.IsInInstance = function() return false end
+    _G.IsInInstance = function() return env.instanceType ~= "none", env.instanceType end
+    _G.UnitGUID = function() return env.guid end
+    _G.GetUnitSpeed = function() return env.speed, 7, 7, 4.7 end
+    _G.UnitPosition = function()
+        if not env.unitPosition then return nil end
+        return env.world.y, env.world.x, 0, env.world.instance
+    end
+    _G.IsSwimming = function() return env.swimming end
+    _G.IsFlying = function() return env.flying end
+    _G.UnitOnTaxi = function() return env.taxi end
+    _G.UnitInVehicle = function() return env.vehicle end
+    _G.CLASS_ICON_TCOORDS = { DRUID = { 0.75, 1, 0, 0.25 } }
     _G.GetInstanceInfo = function() return "Deadmines" end
     _G.IsInGuild = function() return env.inGuild end
-    _G.GetGuildInfo = function() return "Heroes" end
+    _G.GetGuildInfo = function() return env.inGuild and env.guildName or nil end
     _G.GetNumShapeshiftForms = function() return env.forms end
     _G.GetCursorPosition = function() return 600, 400 end
     _G.Enum = { UIMapType = { Zone = 3 } }

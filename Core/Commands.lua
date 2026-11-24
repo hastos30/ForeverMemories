@@ -1,53 +1,82 @@
 -- Core/Commands.lua
--- Slash commands (ARCHITECTURE.md section 6) and the key binding.
+-- Slash commands and key bindings. Technical diagnostics live here, not
+-- in the window (spec 8).
 --   /fm               window
 --   /fm on|off|toggle automatic capture
---   /fm shot          manual shot (uses the timer from settings)
---   /fm status        state in chat
---   /fm debug         diagnostics
+--   /fm shot          manual shot
+--   /fm status        short state in chat
+--   /fm debug         diagnostics: client, API, events, step tracker
 --   /fm log           last 20 log lines
---   /fm ui            show the interface again (emergency)
---   /fm panel         manual panel
---   /fm quest add|remove <id>  quests for the QUEST trigger
+--   /fm ui            show the game interface again (emergency)
+--   /fm reset         window back to the center
 local _, ns = ...
 
 local L = ns.L
 local Print = ns.API.Print
 
+-- Client functions the addon relies on (checked for presence only).
+local PROBE_FUNCTIONS = {
+    "Screenshot", "GetBuildInfo", "C_Timer.After", "C_Timer.NewTicker", "InCombatLockdown",
+    "GetRealZoneText", "C_Map.GetBestMapForUnit", "C_Map.GetMapInfo", "C_Map.GetPlayerMapPosition",
+    "C_Map.GetWorldPosFromMapPos", "UnitPosition", "GetUnitSpeed", "IsSwimming", "IsFlying",
+    "UnitOnTaxi", "UnitInVehicle", "UnitGUID", "IsInInstance", "issecretvalue",
+    "C_EventUtils.IsEventValid", "C_Item.GetItemQualityByID", "IsInGuild", "GetGuildInfo",
+}
+
 local commands = {}
 
-function commands.on() ns.Engine.SetEnabled(true); Print(L.AUTO_CAPTURE .. ": " .. L.ON) end
-function commands.off() ns.Engine.SetEnabled(false); Print(L.AUTO_CAPTURE .. ": " .. L.OFF) end
+function commands.on() ns.Engine.SetEnabled(true); Print(L.AUTO_CAPTURE .. ": " .. L.STATE_ACTIVE) end
+function commands.off() ns.Engine.SetEnabled(false); Print(L.AUTO_CAPTURE .. ": " .. L.STATE_PAUSED) end
 function commands.toggle()
     if ns.db.settings.enabled then commands.off() else commands.on() end
 end
 
 function commands.shot()
-    local ok, reason = ns.Engine.ManualShot()
-    if not ok and reason then
-        Print(L.MANUAL_NOT_TAKEN .. ": " .. L["REASON_" .. reason])
-    end
+    ns.Engine.ManualShot()
 end
 
 function commands.status()
+    local s = ns.History.Stats()
     local session = ns.Engine.Session()
-    Print(string.format("v%s, %s: %s, %s: %s", ns.version, L.AUTO_CAPTURE,
-        ns.db.settings.enabled and L.ON or L.OFF, L.PROFILE, ns.Profiles.ActiveName()))
-    Print(string.format(L.DIAG_ENGINE, ns.Engine.GetState(), ns.Engine.QueueSize(),
-        session.calls, session.unattributed, ns.Journey.IsRunning() and L.ON or L.OFF))
-    local items = ns.Journal.Query({}, 1)
-    for i = math.min(5, #items), 1, -1 do
-        local e = items[i]
-        Print(string.format("#%d %s %s %s (%d/%d)", e.id, date("%H:%M:%S", e.t),
-            ns.Notifications.EventNames(e), L["STATUS_" .. e.status], e.ok or 0, (e.ok or 0) + (e.failed or 0)))
-    end
+    Print(string.format("v%s  %s: %s  %s", ns.version, L.AUTO_CAPTURE,
+        ns.db.settings.enabled and L.STATE_ACTIVE or L.STATE_PAUSED, ns.characterKey))
+    Print(string.format("%s %s, %s %s, %s %s, %s %s", L.STAT_TOTAL, ns.Num(s.total), L.STAT_TODAY,
+        ns.Num(s.today), L.STAT_ZONES, ns.Num(s.zones), L.STAT_STEPS_TODAY, ns.Num(ns.Steps.Today())))
+    Print(string.format("engine %s, queue %d, calls %d, saved %d, unattributed %d",
+        ns.Engine.GetState(), ns.Engine.QueueSize(), session.calls, session.saved, session.unattributed))
 end
 
 function commands.debug()
-    for line in string.gmatch(ns.UI.DiagnosticsText(), "[^\n]+") do
-        Print(line)
+    local build = ns.API.GetBuild()
+    if build then
+        Print(string.format("Client %s (%s), TOC %s, locale %s", build.version, build.build,
+            tostring(build.toc), ns.API.GetLocale()))
     end
-    ns.UI.Open("diagnostics")
+    local missing = {}
+    for _, name in ipairs(PROBE_FUNCTIONS) do
+        if not ns.API.Resolve(name) then
+            missing[#missing + 1] = name
+        end
+    end
+    Print("Missing functions: " .. (#missing == 0 and "-" or table.concat(missing, ", ")))
+    local unavailable = {}
+    for _, id in ipairs(ns.Registry.EVENTS) do
+        local ok, reason = ns.Registry.Status(id)
+        if not ok then
+            unavailable[#unavailable + 1] = id .. " (" .. tostring(reason) .. ")"
+        end
+    end
+    Print("Unavailable events: " .. (#unavailable == 0 and "-" or table.concat(unavailable, "; ")))
+    local source, reason, errors = ns.Steps.Status()
+    local space, x, y, from = ns.API.WorldPosition()
+    Print(string.format("Steps: running %s, source %s, last %s, errors %d, speed %s, exclusion %s",
+        tostring(ns.Steps.IsRunning()), source, reason, errors, tostring(ns.API.UnitSpeed()),
+        tostring(ns.API.MovementExclusion() or "-")))
+    Print(string.format("Position: %s %s %s (%s)", tostring(space), x and string.format("%.1f", x) or "-",
+        y and string.format("%.1f", y) or "-", tostring(from)))
+    local character = ns.character
+    Print(string.format("Character: %s, GUID %s%s, guild %s", ns.characterKey, tostring(character.guid),
+        character.guidChanged and " (changed!)" or "", tostring(character.guild)))
 end
 
 function commands.log()
@@ -64,32 +93,28 @@ function commands.ui()
     end
 end
 
-function commands.panel() ns.ManualPanel.Toggle() end
-
-function commands.quest(args)
-    local action, id = string.match(args or "", "^(%a+)%s+(%d+)")
-    id = tonumber(id)
-    if not id or (action ~= "add" and action ~= "remove") then
-        Print("/fm quest add|remove <questID>")
-        return
-    end
-    ns.character.quests[id] = action == "add" or nil
-    Print(string.format("%s %d", action == "add" and "+" or "-", id))
+function commands.reset()
+    ns.UI.ResetPosition()
 end
 
 function commands.help()
-    Print("/fm  |  on  off  toggle  |  shot  panel  |  status  debug  log  |  ui  |  quest add|remove <id>")
+    Print("/fm  |  on  off  toggle  |  shot  |  status  debug  log  |  ui  reset")
 end
 
 SLASH_FOREVERMEMORIES1 = "/fm"
 SLASH_FOREVERMEMORIES2 = "/forevermemories"
 SlashCmdList.FOREVERMEMORIES = function(message)
+    local name, rest = string.match(message or "", "^%s*(%S*)%s*(.-)%s*$")
+    name = string.lower(name or "")
+    -- The emergency restore works even if the addon did not load fully.
+    if name == "ui" then
+        ns.SafeCall("/fm ui", commands.ui)
+        return
+    end
     if not ns.db or not ns.characterKey then
         Print(L.NOT_LOADED)
         return
     end
-    local name, rest = string.match(message or "", "^%s*(%S*)%s*(.-)%s*$")
-    name = string.lower(name or "")
     if name == "" then
         ns.UI.Toggle()
         return
@@ -98,8 +123,8 @@ SlashCmdList.FOREVERMEMORIES = function(message)
     ns.SafeCall("/fm " .. name, command, rest)
 end
 
--- Key binding (Bindings.xml). Bindings.xml is loaded by the client
--- automatically and must NOT be listed in the TOC.
+-- Key bindings (Bindings.xml is loaded by the client and must NOT be
+-- listed in the TOC).
 BINDING_HEADER_FOREVERMEMORIES = "ForeverMemories"
 table.insert(ns.onReady, function()
     BINDING_NAME_FOREVERMEMORIES_SHOT = L.TAKE_SHOT
@@ -122,16 +147,15 @@ table.insert(ns.onReady, function()
         return
     end
     local canvas = CreateFrame("Frame")
-    local title = ns.Widgets.Text(canvas, "ForeverMemories", "GameFontNormalLarge", ns.Widgets.COLORS.gold)
+    local title = ns.Widgets.Text(canvas, "ForeverMemories", "GameFontNormalLarge", ns.Widgets.COLORS.heading)
     title:SetPoint("TOPLEFT", 16, -16)
-    local open = ns.Widgets.Button(canvas, L.OPEN_WINDOW, 200, function()
+    local open = ns.Widgets.Button(canvas, L.OPEN_WINDOW, 200, 26, function()
         if SettingsPanel and SettingsPanel.Close then
             pcall(SettingsPanel.Close, SettingsPanel)
         end
         ns.UI.Open()
     end)
     open:SetPoint("TOPLEFT", 16, -50)
-    ns.Widgets.Tooltip(open, L.TIP_OPEN_WINDOW, L.OPEN_WINDOW)
     local category = Settings.RegisterCanvasLayoutCategory(canvas, "ForeverMemories")
     Settings.RegisterAddOnCategory(category)
 end)

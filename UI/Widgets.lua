@@ -1,25 +1,45 @@
 -- UI/Widgets.lua
--- Small building blocks for the window: text, buttons, checkboxes,
--- "- value +" steppers and dropdown lists.
+-- Building blocks of the window in the v0.5.0 style (spec 14): dark matte
+-- surfaces, thin gold borders, flat buttons, checkboxes, a dropdown, a
+-- slider, an icon and a scrolling list that reuses its rows.
+-- Only plain frames, BackdropTemplate and solid-color textures are used:
+-- no templates whose look differs between client versions.
 -- Every input widget has :Refresh() that re-reads its value.
--- Any widget can get a mouse-over explanation with W.Tooltip().
--- Only long-standing templates are used (UIPanelButtonTemplate,
--- UICheckButtonTemplate, InputBoxTemplate, BackdropTemplate).
 local _, ns = ...
 
 local W = {}
 ns.Widgets = W
 
+local function rgb(hex)
+    return {
+        tonumber(string.sub(hex, 1, 2), 16) / 255,
+        tonumber(string.sub(hex, 3, 4), 16) / 255,
+        tonumber(string.sub(hex, 5, 6), 16) / 255,
+    }
+end
+
+-- Palette from the spec (14.1).
 W.COLORS = {
-    background = { 0.063, 0.063, 0.059 }, -- #10100F
-    panel = { 0.157, 0.129, 0.086 },      -- #282116
-    gold = { 0.788, 0.639, 0.369 },       -- #C9A35E
-    text = { 0.910, 0.863, 0.753 },       -- #E8DCC0
-    active = { 0.486, 0.667, 0.400 },     -- #7CAA66
-    muted = { 0.55, 0.52, 0.46 },
+    background = rgb("141311"),
+    panel = rgb("211E18"),
+    gold = rgb("C9A35E"),
+    heading = rgb("DFBD80"),
+    text = rgb("DFD4BE"),
+    muted = rgb("A59D90"),
+    active = rgb("83AE67"),
+    divider = rgb("453B2A"),
+    selected = rgb("4A3B22"),  -- selected tab / mode card
+    hover = rgb("2C2820"),
+    error = rgb("D9534F"),
+    paused = rgb("8A857C"),
 }
 
-function W.Backdrop(frame, color, alpha)
+W.HEX = {
+    gold = "|cffC9A35E", heading = "|cffDFBD80", text = "|cffDFD4BE",
+    muted = "|cffA59D90", active = "|cff83AE67", error = "|cffD9534F",
+}
+
+function W.Backdrop(frame, color, alpha, border, borderAlpha)
     if not frame.SetBackdrop then
         return
     end
@@ -30,25 +50,22 @@ function W.Backdrop(frame, color, alpha)
     })
     local c = color or W.COLORS.panel
     frame:SetBackdropColor(c[1], c[2], c[3], alpha or 0.95)
-    local g = W.COLORS.gold
-    frame:SetBackdropBorderColor(g[1], g[2], g[3], 0.8)
+    local b = border or W.COLORS.divider
+    frame:SetBackdropBorderColor(b[1], b[2], b[3], borderAlpha or 1)
+end
+
+function W.Panel(parent, color, border)
+    local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    W.Backdrop(frame, color or W.COLORS.panel, 0.95, border)
+    return frame
 end
 
 ---------------------------------------------------------------------------
 -- Tooltips: a gold title and a white explanation on mouse over.
--- W.Tooltip(widget, text, title)
---   text  - string, or a function returning one (called on every mouse
---           over, so it can describe the current state);
---   title - string or function, optional. Checkboxes, steppers and
---           dropdowns already use their label as the title.
--- A widget made of several frames (a stepper: row, "-" and "+") shows the
--- same tooltip over each of them.
--- Only GameTooltip SetOwner/SetText/AddLine/Show/Hide are used: the same
--- calls as the minimap button tooltip.
+-- W.Tooltip(widget, text, title): text and title may be functions.
 ---------------------------------------------------------------------------
--- Weak tables (__mode = "k"): they never keep a frame alive by themselves.
-local tipInfo = setmetatable({}, { __mode = "k" }) -- frame -> { text, title, targets }
-local tipHooked = setmetatable({}, { __mode = "k" }) -- frame -> true
+local tipInfo = setmetatable({}, { __mode = "k" })
+local tipHooked = setmetatable({}, { __mode = "k" })
 
 local function resolve(value)
     if type(value) == "function" then
@@ -66,9 +83,9 @@ local function showTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     local title = resolve(info.title)
     if type(title) == "string" and title ~= "" then
-        local g = W.COLORS.gold
+        local g = W.COLORS.heading
         GameTooltip:SetText(title, g[1], g[2], g[3])
-        GameTooltip:AddLine(text, 1, 1, 1, true) -- true = wrap long text
+        GameTooltip:AddLine(text, 1, 1, 1, true)
     else
         GameTooltip:SetText(text, 1, 1, 1, 1, true)
     end
@@ -79,7 +96,7 @@ local function hideTooltip()
     GameTooltip:Hide()
 end
 
--- Adds fn to a script without replacing what a template already does.
+-- Adds fn to a script without replacing what is already there.
 local function addScript(frame, script, fn)
     if frame:GetScript(script) then
         frame:HookScript(script, fn)
@@ -87,11 +104,7 @@ local function addScript(frame, script, fn)
         frame:SetScript(script, fn)
     end
 end
-
--- Used by the widgets below: default title and the frames that react.
-local function tipDefaults(widget, title, targets)
-    tipInfo[widget] = { title = title, targets = targets or { widget } }
-end
+W.AddScript = addScript
 
 function W.Tooltip(widget, text, title)
     local info = tipInfo[widget] or { targets = { widget } }
@@ -101,7 +114,7 @@ function W.Tooltip(widget, text, title)
         tipInfo[target] = info
         if not tipHooked[target] then
             tipHooked[target] = true
-            target:EnableMouse(true) -- a plain frame gets no OnEnter without it
+            target:EnableMouse(true)
             addScript(target, "OnEnter", showTooltip)
             addScript(target, "OnLeave", hideTooltip)
         end
@@ -109,111 +122,188 @@ function W.Tooltip(widget, text, title)
     return widget
 end
 
+local function tipDefaults(widget, title, targets)
+    tipInfo[widget] = { title = title, targets = targets or { widget } }
+end
+
+---------------------------------------------------------------------------
+-- Text, icons, lines
+---------------------------------------------------------------------------
 function W.Text(parent, text, template, color)
     local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontHighlight")
     fs:SetJustifyH("LEFT")
     fs:SetText(text or "")
     local c = color or W.COLORS.text
     fs:SetTextColor(c[1], c[2], c[3])
+    if fs.SetWordWrap then
+        fs:SetWordWrap(false) -- single line: long text is cut with "...", never overlaps
+    end
     return fs
 end
 
-function W.Button(parent, text, width, onClick)
-    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    button:SetSize(width or 120, 22)
-    button:SetText(text)
+function W.Heading(parent, text)
+    return W.Text(parent, text, "GameFontNormalLarge", W.COLORS.heading)
+end
+
+-- A game icon with the outer border trimmed.
+function W.Icon(parent, texture, size)
+    local icon = parent:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(size, size)
+    icon:SetTexture(texture)
+    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    return icon
+end
+
+-- An icon in a small dark square (event rows, cards).
+function W.IconBox(parent, texture, size)
+    local box = W.Panel(parent, W.COLORS.background, W.COLORS.divider)
+    box:SetSize(size, size)
+    box.icon = W.Icon(box, texture, size - 8)
+    box.icon:SetPoint("CENTER")
+    function box:SetIcon(path)
+        self.icon:SetTexture(path)
+    end
+    return box
+end
+
+function W.Divider(parent, width)
+    local line = parent:CreateTexture(nil, "ARTWORK")
+    local c = W.COLORS.divider
+    line:SetColorTexture(c[1], c[2], c[3], 1)
+    line:SetHeight(1)
+    if width then
+        line:SetWidth(width)
+    end
+    return line
+end
+
+-- A small round-looking status dot (a square texture, 8 px).
+function W.Dot(parent)
+    local dot = parent:CreateTexture(nil, "OVERLAY")
+    dot:SetSize(8, 8)
+    function dot:SetColor(c)
+        self:SetColorTexture(c[1], c[2], c[3], 1)
+    end
+    return dot
+end
+
+---------------------------------------------------------------------------
+-- Flat button: dark surface, thin border, gold when selected or hovered.
+---------------------------------------------------------------------------
+local function paintButton(button)
+    local c = W.COLORS
+    local bg = button.selected and c.selected or (button.hovered and c.hover or c.panel)
+    local border = (button.selected or button.hovered) and c.gold or c.divider
+    if button.disabled then
+        bg, border = c.panel, c.divider
+    end
+    W.Backdrop(button, bg, 0.97, border, button.selected and 1 or 0.9)
+    local tc = button.disabled and c.muted or (button.selected and c.heading or c.text)
+    button.label:SetTextColor(tc[1], tc[2], tc[3])
+end
+
+function W.Button(parent, text, width, height, onClick)
+    local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    button:SetSize(width or 120, height or 26)
+    button.label = W.Text(button, text, "GameFontHighlight")
+    button.label:SetPoint("CENTER")
+    button.label:SetJustifyH("CENTER")
+    button:RegisterForClicks("LeftButtonUp")
     button:SetScript("OnClick", function(self, mouseButton)
-        ns.SafeCall("button", onClick, self, mouseButton)
+        if not self.disabled and onClick then
+            ns.SafeCall("button", onClick, self, mouseButton)
+        end
     end)
+    addScript(button, "OnEnter", function(self) self.hovered = true; paintButton(self) end)
+    addScript(button, "OnLeave", function(self) self.hovered = false; paintButton(self) end)
+    function button:SetLabel(value) self.label:SetText(value) end
+    function button:SetSelected(value)
+        self.selected = value and true or false
+        paintButton(self)
+    end
+    function button:SetDisabled(value)
+        self.disabled = value and true or false
+        paintButton(self)
+    end
+    paintButton(button)
     return button
 end
 
-function W.Check(parent, label, get, set)
-    local check = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
-    check:SetSize(24, 24)
+-- Text link such as "View all screenshots ->".
+function W.Link(parent, text, onClick)
+    local button = CreateFrame("Button", nil, parent)
+    button.label = W.Text(button, text, "GameFontNormal", W.COLORS.gold)
+    button.label:SetPoint("CENTER")
+    button:SetSize((button.label:GetStringWidth() or 100) + 16, 22)
+    button:SetScript("OnClick", function() ns.SafeCall("link", onClick) end)
+    addScript(button, "OnEnter", function() local c = W.COLORS.heading; button.label:SetTextColor(c[1], c[2], c[3]) end)
+    addScript(button, "OnLeave", function() local c = W.COLORS.gold; button.label:SetTextColor(c[1], c[2], c[3]) end)
+    return button
+end
+
+---------------------------------------------------------------------------
+-- Checkbox: a gold-framed box, a check mark and a clickable label.
+---------------------------------------------------------------------------
+function W.Check(parent, label, get, set, width)
+    local check = CreateFrame("Button", nil, parent)
+    check:SetSize(width or 300, 24)
+    local box = W.Panel(check, W.COLORS.background, W.COLORS.gold)
+    box:SetSize(16, 16)
+    box:SetPoint("LEFT", 2, 0)
+    box:EnableMouse(false)
+    local mark = box:CreateTexture(nil, "OVERLAY")
+    mark:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    mark:SetSize(20, 20)
+    mark:SetPoint("CENTER", 1, 0)
+    local g = W.COLORS.gold
+    mark:SetVertexColor(g[1], g[2], g[3])
     check.label = W.Text(check, label)
-    check.label:SetPoint("LEFT", check, "RIGHT", 2, 0)
-    -- The label is part of the checkbox: hover shows the tooltip,
-    -- a click toggles it (as in the game's own options).
-    check:SetHitRectInsets(0, -((check.label:GetStringWidth() or 0) + 4), 0, 0)
+    check.label:SetPoint("LEFT", box, "RIGHT", 10, 0)
+    check.label:SetPoint("RIGHT", check, "RIGHT", 0, 0)
+    local highlight = check:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAllPoints()
+    highlight:SetColorTexture(g[1], g[2], g[3], 0.06)
     tipDefaults(check, label)
+    check.available = true
+
     check:SetScript("OnClick", function(self)
-        ns.SafeCall("check", set, self:GetChecked() and true or false)
+        if not self.available then
+            return
+        end
+        ns.SafeCall("check", set, not get())
+        self:Refresh()
         if parent.Refresh then parent:Refresh() end
     end)
     function check:Refresh()
-        self:SetChecked(get() and true or false)
+        mark:SetShown(self.available and get() and true or false)
+        local c = self.available and W.COLORS.text or W.COLORS.muted
+        self.label:SetTextColor(c[1], c[2], c[3])
+        local b = self.available and W.COLORS.gold or W.COLORS.divider
+        box:SetBackdropBorderColor(b[1], b[2], b[3], 1)
+    end
+    -- An event the client cannot report is shown greyed out.
+    function check:SetAvailable(value)
+        self.available = value and true or false
+        self:Refresh()
     end
     return check
 end
 
-local function formatNumber(value, step)
-    if step < 1 then
-        local decimals = step < 0.1 and 2 or 1
-        return string.format("%." .. decimals .. "f", value)
-    end
-    return tostring(math.floor(value + 0.5))
-end
-
--- Row: "label   [-] value [+]"
-function W.Stepper(parent, label, spec, get, set, suffix)
-    local row = CreateFrame("Frame", nil, parent)
-    row:SetSize(300, 24)
-    row.label = W.Text(row, label)
-    row.label:SetPoint("LEFT")
-    row.label:SetWidth(170)
-    local minus = W.Button(row, "-", 24)
-    minus:SetPoint("LEFT", row, "LEFT", 172, 0)
-    row.value = W.Text(row, "", "GameFontHighlight")
-    row.value:SetPoint("LEFT", minus, "RIGHT", 4, 0)
-    row.value:SetWidth(56)
-    row.value:SetJustifyH("CENTER")
-    local plus = W.Button(row, "+", 24)
-    plus:SetPoint("LEFT", row.value, "RIGHT", 4, 0)
-    tipDefaults(row, label, { row, minus, plus })
-
-    local function change(direction)
-        local value = (get() or spec.min) + direction * spec.step
-        value = math.floor(value / spec.step + 0.5) * spec.step
-        value = ns.Util.Clamp(value, spec.min, spec.max, spec.min)
-        set(value)
-        if parent.Refresh then parent:Refresh() else row:Refresh() end
-    end
-    minus:SetScript("OnClick", function() ns.SafeCall("stepper", change, -1) end)
-    plus:SetScript("OnClick", function() ns.SafeCall("stepper", change, 1) end)
-
-    function row:Refresh()
-        local value = get()
-        row.value:SetText(value and (formatNumber(value, spec.step) .. (suffix or "")) or "-")
-    end
-    function row:SetEnabled(enabled)
-        minus:SetEnabled(enabled)
-        plus:SetEnabled(enabled)
-    end
-    return row
-end
-
 ---------------------------------------------------------------------------
--- Dropdown: "label   [current option]". A click opens a list of all
--- options under the button; a click on an option selects it.
--- One shared list frame serves every dropdown, so only one list is open.
--- Built from plain frames on purpose: UIDropDownMenu and the newer Menu
--- API differ between client versions and are not confirmed in Forever.
+-- Dropdown: a button that opens a list of options under it. One shared
+-- list frame serves every dropdown. Built from plain frames on purpose.
 ---------------------------------------------------------------------------
-local LIST_ROW_HEIGHT = 18
-local LIST_MAX_ROWS = 15 -- longer lists wrap into the next column
-
-local list -- created on first use
+local LIST_ROW_HEIGHT = 20
+local list
 
 local function closeList()
     if list then
-        list:Hide() -- OnHide also hides the click catcher
+        list:Hide()
     end
 end
 W.CloseDropdown = closeList
 
 local function createList()
-    -- Invisible full-screen button under the list: a click outside closes it.
     local catcher = CreateFrame("Button", nil, UIParent)
     catcher:SetAllPoints(UIParent)
     catcher:SetFrameStrata("FULLSCREEN")
@@ -224,7 +314,7 @@ local function createList()
     list:SetFrameStrata("FULLSCREEN_DIALOG")
     list:SetClampedToScreen(true)
     list:EnableMouse(true)
-    W.Backdrop(list, W.COLORS.background, 0.97)
+    W.Backdrop(list, W.COLORS.background, 0.98, W.COLORS.gold)
     list.rows = {}
     list.catcher = catcher
     list:SetScript("OnHide", function(self)
@@ -244,13 +334,13 @@ local function listRow(i)
     end
     local row = CreateFrame("Button", nil, list)
     row:SetHeight(LIST_ROW_HEIGHT)
-    local highlight = row:CreateTexture(nil, "HIGHLIGHT") -- shown on mouse over
+    local highlight = row:CreateTexture(nil, "HIGHLIGHT")
     highlight:SetAllPoints()
     local g = W.COLORS.gold
-    highlight:SetColorTexture(g[1], g[2], g[3], 0.25)
+    highlight:SetColorTexture(g[1], g[2], g[3], 0.2)
     row.text = W.Text(row, "")
-    row.text:SetPoint("LEFT", row, "LEFT", 6, 0)
-    row.text:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+    row.text:SetPoint("LEFT", row, "LEFT", 8, 0)
+    row.text:SetPoint("RIGHT", row, "RIGHT", -8, 0)
     row:SetScript("OnClick", function(self)
         local owner = list.owner
         closeList()
@@ -262,32 +352,27 @@ local function listRow(i)
     return row
 end
 
--- Shows the options under the owner button; a second click closes them.
 local function openList(owner, options, current)
     list = list or createList()
     if list:IsShown() and list.owner == owner then
         return closeList()
     end
     local width = owner:GetWidth()
-    local columns = math.ceil(#options / LIST_MAX_ROWS)
-    local perColumn = math.ceil(#options / columns)
     for i, option in ipairs(options) do
         local row = listRow(i)
-        local column, line = math.floor((i - 1) / perColumn), (i - 1) % perColumn
         row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", list, "TOPLEFT", 4 + column * width, -4 - line * LIST_ROW_HEIGHT)
-        row:SetWidth(width)
+        row:SetPoint("TOPLEFT", list, "TOPLEFT", 2, -2 - (i - 1) * LIST_ROW_HEIGHT)
+        row:SetWidth(width - 4)
         row.value = option.value
         row.text:SetText(option.text)
-        local c = option.value == current and W.COLORS.active or W.COLORS.text
+        local c = option.value == current and W.COLORS.heading or W.COLORS.text
         row.text:SetTextColor(c[1], c[2], c[3])
         row:Show()
     end
     for i = #options + 1, #list.rows do
         list.rows[i]:Hide()
     end
-    list:SetSize(columns * width + 8, perColumn * LIST_ROW_HEIGHT + 8)
-    -- Same size as the window the button is in (the window has its own scale).
+    list:SetSize(width, #options * LIST_ROW_HEIGHT + 4)
     list:SetScale(owner:GetEffectiveScale() / UIParent:GetEffectiveScale())
     list:ClearAllPoints()
     list:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, -2)
@@ -296,93 +381,147 @@ local function openList(owner, options, current)
     list.catcher:Show()
 end
 
--- options: list of { value = ..., text = ... } or a function returning it.
--- set(value) is called only when the player picks a different value.
-function W.Dropdown(parent, label, options, get, set, width)
-    local row = CreateFrame("Frame", nil, parent)
-    row:SetSize(300, 24)
-    row.label = W.Text(row, label)
-    row.label:SetPoint("LEFT")
-    row.label:SetWidth(170)
-
-    local function optionList()
-        return type(options) == "function" and options() or options
-    end
-    local button = W.Button(row, "", width or 120, function(self)
-        local opts = optionList()
-        if #opts > 0 then
-            openList(self, opts, get())
-        end
+-- options: list of { value = ..., text = ... }. set(value) is called only
+-- when the player picks a different value.
+function W.Dropdown(parent, options, get, set, width)
+    local button = W.Button(parent, "", width or 140, 26, function(self)
+        openList(self, options, get())
     end)
-    button:SetPoint("LEFT", row, "LEFT", 172, 0)
-    row.button = button
-    tipDefaults(row, label, { row, button })
+    button.label:ClearAllPoints()
+    button.label:SetPoint("LEFT", 10, 0)
+    button.label:SetPoint("RIGHT", -22, 0)
+    local arrow = W.Text(button, "v", "GameFontHighlightSmall", W.COLORS.gold)
+    arrow:SetPoint("RIGHT", -8, 0)
 
     function button:Choose(value)
         if value ~= get() then
             ns.SafeCall("dropdown", set, value)
         end
-        if parent.Refresh then parent:Refresh() else row:Refresh() end
+        self:Refresh()
     end
-    -- Window closed or tab switched: the list must not stay on screen.
     button:SetScript("OnHide", function(self)
         if list and list.owner == self then
             closeList()
         end
     end)
-
-    function row:Refresh()
+    function button:Refresh()
         local current = get()
-        local text = tostring(current)
-        for _, option in ipairs(optionList()) do
+        for _, option in ipairs(options) do
             if option.value == current then
-                text = option.text
-                break
+                self:SetLabel(option.text)
+                return
             end
         end
-        button:SetText(text)
+        self:SetLabel(tostring(current))
     end
-    function row:SetEnabled(enabled)
-        button:SetEnabled(enabled)
-        if not enabled and list and list.owner == button then
-            closeList()
-        end
-    end
-    return row
+    return button
 end
 
-function W.Input(parent, width)
-    local box = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
-    box:SetSize(width or 160, 20)
-    box:SetAutoFocus(false)
-    box:SetMaxLetters(200)
-    box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+---------------------------------------------------------------------------
+-- Slider: a thin track, a gold filled part and a square thumb.
+---------------------------------------------------------------------------
+function W.Slider(parent, width, min, max, step, get, set)
+    local slider = CreateFrame("Slider", nil, parent)
+    slider:SetSize(width, 20)
+    slider:SetOrientation("HORIZONTAL")
+    slider:SetMinMaxValues(min, max)
+    slider:SetValueStep(step)
+    if slider.SetObeyStepOnDrag then
+        slider:SetObeyStepOnDrag(true)
+    end
+    local c = W.COLORS
+    local track = slider:CreateTexture(nil, "BACKGROUND")
+    track:SetColorTexture(c.divider[1], c.divider[2], c.divider[3], 1)
+    track:SetHeight(6)
+    track:SetPoint("LEFT", 0, 0)
+    track:SetPoint("RIGHT", 0, 0)
+    local fill = slider:CreateTexture(nil, "ARTWORK")
+    fill:SetColorTexture(c.gold[1], c.gold[2], c.gold[3], 1)
+    fill:SetHeight(6)
+    fill:SetPoint("LEFT", 0, 0)
+    local thumb = slider:CreateTexture(nil, "OVERLAY")
+    thumb:SetColorTexture(c.heading[1], c.heading[2], c.heading[3], 1)
+    thumb:SetSize(14, 18)
+    slider:SetThumbTexture(thumb)
+
+    local updating = false
+    local function paint(value)
+        fill:SetWidth(math.max(1, (value - min) / (max - min) * width))
+    end
+    slider:SetScript("OnValueChanged", function(_, value)
+        value = math.floor(value / step + 0.5) * step
+        paint(value)
+        if not updating and value ~= get() then
+            ns.SafeCall("slider", set, value)
+        end
+    end)
+    function slider:Refresh()
+        updating = true
+        self:SetValue(get())
+        paint(get())
+        updating = false
+    end
+    return slider
+end
+
+---------------------------------------------------------------------------
+-- Scrolling list that creates only the rows that fit on screen and
+-- refills them while scrolling: thousands of records, a dozen frames.
+--   makeRow(parent) -> row frame       fillRow(row, item)
+---------------------------------------------------------------------------
+function W.ScrollList(parent, width, height, rowHeight, makeRow, fillRow)
+    local box = CreateFrame("Frame", nil, parent)
+    box:SetSize(width, height)
+    box:EnableMouseWheel(true)
+    local visible = math.floor(height / rowHeight)
+    local rows, items, offset = {}, {}, 0
+    for i = 1, visible do
+        local row = makeRow(box)
+        row:SetPoint("TOPLEFT", 0, -(i - 1) * rowHeight)
+        row:SetSize(width - 8, rowHeight)
+        rows[i] = row
+    end
+    local c = W.COLORS
+    local bar = box:CreateTexture(nil, "OVERLAY")
+    bar:SetColorTexture(c.gold[1], c.gold[2], c.gold[3], 0.6)
+    bar:SetWidth(3)
+
+    local function maxOffset()
+        return math.max(0, #items - visible)
+    end
+    function box:Redraw()
+        offset = ns.Util.Clamp(offset, 0, maxOffset(), 0)
+        for i, row in ipairs(rows) do
+            local item = items[offset + i]
+            if item then
+                fillRow(row, item)
+                row:Show()
+            else
+                row:Hide()
+            end
+        end
+        if maxOffset() > 0 then
+            local barHeight = math.max(20, height * visible / #items)
+            bar:SetHeight(barHeight)
+            bar:ClearAllPoints()
+            bar:SetPoint("TOPRIGHT", box, "TOPRIGHT", 0, -(height - barHeight) * offset / maxOffset())
+            bar:Show()
+        else
+            bar:Hide()
+        end
+    end
+    function box:SetItems(newItems, keepOffset)
+        items = newItems or {}
+        if not keepOffset then
+            offset = 0
+        end
+        self:Redraw()
+    end
+    function box:Scroll(delta)
+        offset = offset - delta * 3
+        self:Redraw()
+    end
+    box:SetScript("OnMouseWheel", function(self, delta) self:Scroll(delta) end)
+    box.rows = rows
     return box
-end
-
--- Vertical layout: each Add() places a widget under the previous one.
-function W.Column(parent, x, y, gap)
-    local column = { y = y, widgets = {} }
-    function column:Add(widget, height, indent)
-        widget:SetPoint("TOPLEFT", parent, "TOPLEFT", x + (indent or 0), -self.y)
-        self.y = self.y + (height or 26) + (gap or 2)
-        if widget.Refresh then
-            self.widgets[#self.widgets + 1] = widget
-        end
-        return widget
-    end
-    function column:Space(height)
-        self.y = self.y + height
-    end
-    function column:Refresh()
-        for _, widget in ipairs(self.widgets) do
-            widget:Refresh()
-        end
-    end
-    return column
-end
-
--- A titled block of text (used for headings).
-function W.Heading(parent, text)
-    return W.Text(parent, text, "GameFontNormalLarge", W.COLORS.gold)
 end

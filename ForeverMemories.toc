@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: ForeverMemories
-## Notes: Automatic screenshots of important moments in World of Warcraft: Forever.
-## Notes-ruRU: Автоматические скриншоты важных моментов в World of Warcraft: Forever.
-## Version: 0.4.2-beta
+## Notes: Automatic screenshots of important moments and a step counter for World of Warcraft: Forever.
+## Notes-ruRU: Автоматические скриншоты важных моментов и шагомер для World of Warcraft: Forever.
+## Version: 0.5.0
 ## SavedVariables: ForeverMemoriesDB
 ## IconTexture: Interface\Icons\INV_Misc_Spyglass_03
 ## AddonCompartmentFunc: ForeverMemories_OnAddonCompartmentClick
@@ -15,23 +15,18 @@ Core\Init.lua
 Locales\enUS.lua
 Locales\ruRU.lua
 Core\Registry.lua
-Modules\Profiles.lua
-Modules\Journal.lua
-Modules\Statistics.lua
+Modules\History.lua
 Capture\Rules.lua
 Capture\Queue.lua
-Capture\Strategies.lua
 Capture\UIState.lua
 Capture\Engine.lua
 Core\Events.lua
-Modules\Journey.lua
+Modules\Steps.lua
 Modules\Notifications.lua
 UI\Widgets.lua
 UI\Main.lua
-UI\Rules.lua
+UI\Capture.lua
+UI\History.lua
 UI\Settings.lua
-UI\Journal.lua
-UI\Diagnostics.lua
 UI\Minimap.lua
-UI\ManualPanel.lua
 Core\Commands.lua

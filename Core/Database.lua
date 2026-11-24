@@ -1,46 +1,189 @@
 -- Core/Database.lua
 -- Loads, migrates and validates ForeverMemoriesDB. Pure logic: no client
 -- calls, so every rule here is covered by offline tests.
+--
+-- Schema 3 (v0.5.0):
+--   schemaVersion = 3
+--   settings   = account-wide settings (one set for every character)
+--   ui         = { point = { point, relativePoint, x, y } }
+--   counters   = { unattributed = n }  Print Screen etc., diagnostics only
+--   characters = { ["Realm:Name"] = character }
+--   legacy     = old journal records whose character is unknown (kept,
+--                never shown and never given to a random character)
+--
+-- character = {
+--   name, realm, class, guid,
+--   shots = { { t, ev, zone, info, manual, id }, ... }  oldest first
+--   shotsTotal, shotsByDay = { ["2026-11-24"] = n }, shotZones = { [zone] = true },
+--   visited = { [zoneKey] = true }, zonesSeeded,
+--   guild = name | false | nil (nil = unknown yet),
+--   steps = { total = x, days = { ["2026-11-24"] = x }, since = t },
+-- }
 local _, ns = ...
 
 local Database = {}
 ns.Database = Database
 
-Database.SCHEMA_VERSION = 2
-Database.MAX_JOURNAL = 2000
-Database.MAX_FAVORITES = 500
+Database.SCHEMA_VERSION = 3
+Database.MAX_SHOTS = 5000 -- per character; counters are never trimmed
 
 -- Settings: type, default and allowed values. Anything else is reset.
 Database.SETTINGS = {
     enabled = { kind = "boolean", default = true },
-    locale = { kind = "enum", default = "auto", values = { "auto", "enUS", "ruRU" } },
+    mode = { kind = "enum", default = "normal", values = { "normal", "clean" } },
     notifications = { kind = "boolean", default = true },
-    notifyDuration = { kind = "number", default = 3, min = 1, max = 5 },
-    sound = { kind = "boolean", default = true },
+    sound = { kind = "boolean", default = false },
     minimap = { kind = "boolean", default = true },
     minimapAngle = { kind = "number", default = 200, min = 0, max = 360 },
-    scale = { kind = "number", default = 1, min = 0.8, max = 1.5 },
-    manualTimer = { kind = "enum", default = 0, values = { 0, 3, 5, 10 } },
-    cleanAllowed = { kind = "boolean", default = true },
-    advanced = { kind = "boolean", default = false },
-    defaultProfile = { kind = "string", default = "Adventurer" },
-    firstRunDone = { kind = "boolean", default = false },
-    anniversaryShown = { kind = "string", default = "" },
+    locale = { kind = "enum", default = "auto", values = { "auto", "enUS", "ruRU" } },
+    scale = { kind = "number", default = 1, min = 0.75, max = 1.3 },
 }
 
 local TOP_LEVEL = {
-    schemaVersion = true, settings = true, profiles = true, characters = true,
-    journal = true, nextJournalId = true, counters = true, ui = true,
+    schemaVersion = true, settings = true, ui = true, counters = true,
+    characters = true, legacy = true,
 }
 
--- Sequential migrations: MIGRATIONS[n] turns schema n into n + 1.
+local function tableOf(parent, key, repaired, path)
+    if type(parent[key]) ~= "table" then
+        if parent[key] ~= nil then
+            repaired[#repaired + 1] = path
+        end
+        parent[key] = {}
+    end
+    return parent[key]
+end
+
+local function newCharacter(key)
+    local realm, name = string.match(tostring(key), "^(.-):(.+)$")
+    return {
+        name = name, realm = realm,
+        shots = {}, shotsTotal = 0, shotsByDay = {}, shotZones = {},
+        visited = {},
+        steps = { total = 0, days = {} },
+    }
+end
+
+-- Counts one confirmed shot in the character's statistics.
+function Database.CountShot(character, record)
+    character.shotsTotal = (character.shotsTotal or 0) + 1
+    local day = ns.Util.DayKey(record.t)
+    character.shotsByDay[day] = (character.shotsByDay[day] or 0) + 1
+    if type(record.zone) == "string" and record.zone ~= "" then
+        character.shotZones[record.zone] = true
+    end
+end
+
+---------------------------------------------------------------------------
+-- Migrations: MIGRATIONS[n] turns schema n into n + 1. Each runs once:
+-- schemaVersion is raised right after it, so nothing is copied twice.
+---------------------------------------------------------------------------
+
+-- Old event types that are the same event now.
+local RENAMED = { MAX_LEVEL = "LEVEL" }
+
+-- Old journal entry -> new shot record (nil if no shot was saved).
+local function convertEntry(entry)
+    if type(entry) ~= "table" or type(entry.t) ~= "number"
+        or type(entry.ok) ~= "number" or entry.ok <= 0 then
+        return nil
+    end
+    local events = type(entry.events) == "table" and entry.events or {}
+    local ev = events[1] or "MANUAL"
+    ev = RENAMED[ev] or ev
+    local info
+    local key = type(entry.keys) == "table" and entry.keys[1]
+    if ev == "LEVEL" and type(key) == "string" then
+        info = tonumber(string.match(key, "^level:(%d+)$"))
+    end
+    return {
+        t = entry.t, ev = ev, zone = entry.zone, info = info,
+        manual = entry.manual or nil, id = entry.id,
+    }
+end
+
+-- Old trigger ids that are one of the nine events now.
+local KEPT_EVENTS = {
+    LEVEL = "LEVEL", DEATH = "DEATH", BOSS = "BOSS", DUEL = "DUEL", LOOT_EPIC = "LOOT_EPIC",
+    LOOT_LEGENDARY = "LOOT_LEGENDARY", ZONE = "ZONE", GUILD = "GUILD",
+}
+
 Database.MIGRATIONS = {
     [1] = function(db)
         -- v0.0.1 spike data is not needed any more.
         db.spike = nil
     end,
+
+    -- 0.4.2-beta -> 0.5.0: profiles become one set of account settings,
+    -- the shared journal becomes per-character history.
+    [2] = function(db)
+        local old = type(db.settings) == "table" and db.settings or {}
+        local settings = {}
+        for _, key in ipairs({ "enabled", "locale", "notifications", "sound", "minimap", "minimapAngle" }) do
+            settings[key] = old[key]
+        end
+        if type(old.scale) == "number" then
+            settings.scale = ns.Util.Clamp(old.scale, Database.SETTINGS.scale.min, Database.SETTINGS.scale.max, 1)
+        end
+
+        -- Only switches the player changed on purpose (a custom profile)
+        -- are carried over; preset defaults give way to the new defaults.
+        settings.events = {}
+        local profiles = type(db.profiles) == "table" and db.profiles or {}
+        local active = profiles[old.defaultProfile]
+        if type(active) == "table" and type(active.rules) == "table" then
+            for oldId, newId in pairs(KEPT_EVENTS) do
+                local rule = active.rules[oldId]
+                if type(rule) == "table" and type(rule.enabled) == "boolean" then
+                    settings.events[newId] = rule.enabled
+                end
+            end
+        end
+        db.settings = settings
+
+        -- Characters keep the zones they visited.
+        local characters = {}
+        if type(db.characters) == "table" then
+            for key, oldChar in pairs(db.characters) do
+                if type(key) == "string" and type(oldChar) == "table" then
+                    local character = newCharacter(key)
+                    if type(oldChar.visited) == "table" then
+                        character.visited = oldChar.visited
+                    end
+                    character.zonesSeeded = oldChar.zonesSeeded or nil
+                    characters[key] = character
+                end
+            end
+        end
+        db.characters = characters
+
+        -- Journal: confirmed shots go to the character recorded in them.
+        local legacy = {}
+        if type(db.journal) == "table" then
+            for _, entry in ipairs(db.journal) do
+                local record = convertEntry(entry)
+                if record then
+                    local key = entry.char
+                    if type(key) == "string" and string.find(key, ":", 1, true) then
+                        characters[key] = characters[key] or newCharacter(key)
+                        local character = characters[key]
+                        character.shots[#character.shots + 1] = record
+                        Database.CountShot(character, record)
+                    else
+                        legacy[#legacy + 1] = record
+                    end
+                end
+            end
+        end
+        db.legacy = #legacy > 0 and legacy or nil
+
+        db.profiles, db.journal, db.nextJournalId = nil, nil, nil
+    end,
 }
 
+---------------------------------------------------------------------------
+-- Validation
+---------------------------------------------------------------------------
 local function validSetting(spec, value)
     if spec.kind == "enum" then
         for _, allowed in ipairs(spec.values) do
@@ -59,25 +202,15 @@ local function validSetting(spec, value)
     return true
 end
 
-local function tableOf(parent, key, repaired, path)
-    if type(parent[key]) ~= "table" then
-        if parent[key] ~= nil then
-            repaired[#repaired + 1] = path
-        end
-        parent[key] = {}
-    end
-    return parent[key]
-end
-
 local function validateSettings(db, repaired)
     local settings = tableOf(db, "settings", repaired, "settings")
     for key, value in pairs(settings) do
-        if not Database.SETTINGS[key] then
-            settings[key] = nil
-            repaired[#repaired + 1] = "settings." .. tostring(key)
-        elseif not validSetting(Database.SETTINGS[key], value) then
-            settings[key] = nil
-            repaired[#repaired + 1] = "settings." .. key
+        if key ~= "events" then
+            local spec = Database.SETTINGS[key]
+            if not spec or not validSetting(spec, value) then
+                settings[key] = nil
+                repaired[#repaired + 1] = "settings." .. tostring(key)
+            end
         end
     end
     for key, spec in pairs(Database.SETTINGS) do
@@ -85,21 +218,60 @@ local function validateSettings(db, repaired)
             settings[key] = spec.default
         end
     end
+    -- Events: every approved event has a switch, on by default.
+    local events = tableOf(settings, "events", repaired, "settings.events")
+    for key, value in pairs(events) do
+        if not ns.Registry.TRIGGERS[key] or key == "MANUAL" or type(value) ~= "boolean" then
+            events[key] = nil
+            repaired[#repaired + 1] = "settings.events." .. tostring(key)
+        end
+    end
+    for _, id in ipairs(ns.Registry.EVENTS) do
+        if events[id] == nil then
+            events[id] = true
+        end
+    end
 end
 
-local function validateProfiles(db, repaired)
-    local profiles = tableOf(db, "profiles", repaired, "profiles")
-    for name, profile in pairs(profiles) do
-        if type(name) ~= "string" or type(profile) ~= "table" then
-            profiles[name] = nil
-            repaired[#repaired + 1] = "profiles." .. tostring(name)
+local function number(value)
+    return type(value) == "number" and value == value and value >= 0
+end
+
+local function validateCharacter(character, path, repaired)
+    tableOf(character, "visited", repaired, path .. ".visited")
+    tableOf(character, "shotsByDay", repaired, path .. ".shotsByDay")
+    tableOf(character, "shotZones", repaired, path .. ".shotZones")
+    local shots = tableOf(character, "shots", repaired, path .. ".shots")
+    local clean = {}
+    for i = 1, #shots do
+        local record = shots[i]
+        if type(record) == "table" and type(record.t) == "number" and type(record.ev) == "string" then
+            clean[#clean + 1] = record
         else
-            if type(profile.base) ~= "string" then
-                profile.base = "Adventurer"
-            end
-            tableOf(profile, "rules", repaired, "profiles." .. name .. ".rules")
-            tableOf(profile, "limits", repaired, "profiles." .. name .. ".limits")
-            tableOf(profile, "journey", repaired, "profiles." .. name .. ".journey")
+            repaired[#repaired + 1] = path .. ".shots[" .. i .. "]"
+        end
+    end
+    while #clean > Database.MAX_SHOTS do
+        table.remove(clean, 1)
+    end
+    character.shots = clean
+    if not number(character.shotsTotal) then
+        character.shotsTotal = #clean
+    end
+    for key, value in pairs(character.shotsByDay) do
+        if type(key) ~= "string" or not number(value) then
+            character.shotsByDay[key] = nil
+        end
+    end
+    local steps = tableOf(character, "steps", repaired, path .. ".steps")
+    if not number(steps.total) then
+        steps.total = 0
+    end
+    local days = tableOf(steps, "days", repaired, path .. ".steps.days")
+    for key, value in pairs(days) do
+        if type(key) ~= "string" or not number(value) then
+            days[key] = nil
+            repaired[#repaired + 1] = path .. ".steps.days." .. tostring(key)
         end
     end
 end
@@ -111,39 +283,8 @@ local function validateCharacters(db, repaired)
             characters[key] = nil
             repaired[#repaired + 1] = "characters." .. tostring(key)
         else
-            local path = "characters." .. key
-            tableOf(character, "visited", repaired, path .. ".visited")
-            tableOf(character, "firstEvents", repaired, path .. ".firstEvents")
-            tableOf(character, "quests", repaired, path .. ".quests")
-            if character.profile ~= nil and type(character.profile) ~= "string" then
-                character.profile = nil
-                repaired[#repaired + 1] = path .. ".profile"
-            end
+            validateCharacter(character, "characters." .. key, repaired)
         end
-    end
-end
-
-local function validateJournal(db, repaired)
-    local journal = tableOf(db, "journal", repaired, "journal")
-    local clean = {}
-    local maxId = 0
-    for i = 1, #journal do
-        local entry = journal[i]
-        if type(entry) == "table" and type(entry.id) == "number" and type(entry.t) == "number" then
-            if type(entry.events) ~= "table" then
-                entry.events = {}
-            end
-            clean[#clean + 1] = entry
-            if entry.id > maxId then
-                maxId = entry.id
-            end
-        else
-            repaired[#repaired + 1] = "journal[" .. i .. "]"
-        end
-    end
-    db.journal = clean
-    if type(db.nextJournalId) ~= "number" or db.nextJournalId <= maxId then
-        db.nextJournalId = maxId + 1
     end
 end
 
@@ -174,6 +315,7 @@ function Database.Load(raw)
         if Database.MIGRATIONS[v] then
             Database.MIGRATIONS[v](db)
         end
+        db.schemaVersion = v + 1
     end
     db.schemaVersion = Database.SCHEMA_VERSION
 
@@ -185,24 +327,38 @@ function Database.Load(raw)
     end
 
     validateSettings(db, repaired)
-    validateProfiles(db, repaired)
     validateCharacters(db, repaired)
-    validateJournal(db, repaired)
-    tableOf(db, "counters", repaired, "counters")
     tableOf(db, "ui", repaired, "ui")
+    tableOf(db, "counters", repaired, "counters")
     if type(db.counters.unattributed) ~= "number" then
         db.counters.unattributed = 0
     end
-
+    if db.legacy ~= nil and type(db.legacy) ~= "table" then
+        db.legacy = nil
+    end
     return db, repaired
 end
 
--- Per-character storage, created on first use.
-function Database.Character(db, key)
+-- Per-character storage, created on first use. Name, realm, class and
+-- GUID are refreshed at every login.
+function Database.Character(db, key, info)
     local character = db.characters[key]
     if not character then
-        character = { visited = {}, firstEvents = {}, quests = {} }
+        character = newCharacter(key)
         db.characters[key] = character
+    end
+    if info then
+        character.name = info.name or character.name
+        character.realm = info.realm or character.realm
+        character.class = info.class or character.class
+        if info.guid then
+            if character.guid and character.guid ~= info.guid then
+                -- Same name and realm, different GUID: recorded for
+                -- diagnostics (see API_COMPATIBILITY.md), data is kept.
+                character.guidChanged = true
+            end
+            character.guid = info.guid
+        end
     end
     return character
 end

@@ -3,9 +3,9 @@
 local addonName, ns = ...
 
 ns.name = addonName
-ns.version = "0.4.2-beta"
+ns.version = "0.5.0"
 
--- Our own frames (window, panels). They are hidden while a screenshot is
+-- Our own frames (the window). They are hidden while a screenshot is
 -- taken so they never appear in a memory.
 ns.ownFrames = {}
 
@@ -62,17 +62,38 @@ ns.L = setmetatable({}, {
     end,
 })
 
--- Locale table for a setting value ("auto" = the game client language).
-function ns.ResolveLocale(code)
+-- Locale code for a setting value ("auto" = the game client language).
+function ns.ResolveLocaleCode(code)
     if code == nil or code == "auto" then
         code = ns.API.GetLocale()
     end
-    return ns.locales[code] or ns.locales.enUS
+    return ns.locales[code] and code or "enUS"
+end
+
+function ns.ResolveLocale(code)
+    return ns.locales[ns.ResolveLocaleCode(code)]
 end
 
 -- Strings are read once at load, so a change is visible after a UI reload.
 function ns.SetLocale(code)
-    ns.activeLocale = ns.ResolveLocale(code)
+    ns.activeLocaleCode = ns.ResolveLocaleCode(code)
+    ns.activeLocale = ns.locales[ns.activeLocaleCode]
+end
+
+-- Whole number with the separator of the active language: "12 458".
+function ns.Num(value)
+    return ns.Util.FormatNumber(value, ns.L.THOUSANDS_SEP)
+end
+
+-- Number with the right word form: ns.Count(1245872, "STEPS") ->
+-- "1 245 872 шага" (keys STEPS_one, STEPS_few, STEPS_many).
+function ns.Count(value, key)
+    local form = ns.Util.PluralForm(value, ns.activeLocaleCode)
+    local word = ns.L[key .. "_" .. form]
+    if word == key .. "_" .. form then
+        word = ns.L[key .. "_many"]
+    end
+    return ns.Num(value) .. " " .. word
 end
 
 ---------------------------------------------------------------------------
@@ -103,8 +124,16 @@ ns.On("PLAYER_LOGIN", function()
     if not ns.db then
         return
     end
-    ns.characterKey = ns.API.CharacterKey()
-    ns.character = ns.Database.Character(ns.db, ns.characterKey)
+    local key = ns.API.CharacterKey()
+    if not key then
+        ns.Logger.Error("Character name or realm unavailable: history is off this session")
+        return
+    end
+    ns.characterKey = key
+    ns.character = ns.Database.Character(ns.db, key, {
+        name = ns.API.PlayerName(), realm = ns.API.RealmName(),
+        class = ns.API.PlayerClass(), guid = ns.API.PlayerGUID(),
+    })
     for i = 1, #ns.onLogin do
         ns.SafeCall("onLogin", ns.onLogin[i])
     end

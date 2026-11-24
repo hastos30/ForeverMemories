@@ -1,8 +1,8 @@
 -- tests/run.lua
 -- Offline tests with a fake client. Run from the addon root:
 --   lua5.1 tests/run.lua
--- IDs in names refer to TESTING.md. Passing here does not mean the game
--- client behaves the same way: client checks are listed in TESTING.md.
+-- Passing here proves our logic, not the behaviour of the real Forever
+-- client: client checks are listed in docs/TESTING.md.
 package.path = "./tests/?.lua;" .. package.path
 local Mock = require("mock_wow")
 
@@ -24,14 +24,24 @@ local function eq(actual, expected, what)
     end
 end
 
+local function near(actual, expected, tolerance, what)
+    if math.abs(actual - expected) > tolerance then
+        error(string.format("%s: expected ~%s, got %s", what or "value", tostring(expected), tostring(actual)), 2)
+    end
+end
+
 local function start(options)
     local env = Mock.new(options)
     local ns = env.login(".")
     return env, ns
 end
 
-local function last(ns)
-    return ns.db.journal[#ns.db.journal]
+local function shots(ns)
+    return ns.character.shots
+end
+
+local function lastShot(ns)
+    return shots(ns)[#shots(ns)]
 end
 
 local function levelUp(env, level)
@@ -39,652 +49,697 @@ local function levelUp(env, level)
     env.fire("PLAYER_LEVEL_UP", level)
 end
 
----------------------------------------------------------------------------
--- Database
----------------------------------------------------------------------------
-test("T01 fresh install: defaults, no errors", function()
-    local _, ns = start()
-    eq(ns.db.schemaVersion, 2, "schema")
-    eq(ns.db.settings.enabled, true, "enabled")
-    eq(ns.Profiles.ActiveName(), "Adventurer", "profile")
-    eq(#ns.Logger.Recent(200) > 0, true, "log has entries")
+local function noErrors(ns)
     for _, entry in ipairs(ns.Logger.Recent(200)) do
         eq(entry.level ~= "ERROR", true, "no errors: " .. entry.msg)
     end
+end
+
+-- Walk in a straight line: `seconds` at `speed` yards/s along x.
+local function walk(env, seconds, speed)
+    env.speed = speed or 7
+    local steps = math.floor(seconds / 0.1 + 0.5)
+    for _ = 1, steps do
+        env.world.x = env.world.x + env.speed * 0.1
+        env.advance(0.1)
+    end
+end
+
+-- Expected steps for a distance in yards.
+local function stepsFor(yards)
+    return yards * 0.9144 / 0.75
+end
+
+---------------------------------------------------------------------------
+-- Data, defaults, migration
+---------------------------------------------------------------------------
+test("T01 fresh install: all defaults, nothing to set up", function()
+    local _, ns = start()
+    eq(ns.db.schemaVersion, 3, "schema")
+    local s = ns.db.settings
+    eq(s.enabled, true, "auto capture on")
+    eq(s.mode, "normal", "normal shot")
+    eq(s.notifications, true, "notifications")
+    eq(s.sound, false, "sound off")
+    eq(s.minimap, true, "minimap")
+    eq(s.locale, "auto", "language")
+    eq(s.scale, 1, "scale 100%")
+    for _, id in ipairs(ns.Registry.EVENTS) do
+        eq(s.events[id], true, id .. " on")
+    end
+    eq(#ns.Registry.EVENTS, 9, "nine events")
+    eq(ns.Steps.IsRunning(), true, "step tracker on")
+    noErrors(ns)
 end)
 
-test("migration v1 (spike) -> v2 keeps nothing of the spike", function()
-    local _, ns = start({ savedDB = { schemaVersion = 1, spike = { loadCount = 5, shots = {} } } })
-    eq(ns.db.schemaVersion, 2, "schema")
-    eq(ns.db.spike, nil, "spike removed")
+local function oldDB()
+    return {
+        schemaVersion = 2,
+        settings = { enabled = false, locale = "ruRU", sound = true, scale = 1.4, minimap = false,
+                     defaultProfile = "Custom", advanced = true, manualTimer = 5, cleanAllowed = true },
+        profiles = { Custom = { base = "Adventurer", rules = { DEATH = { enabled = false }, MOUNT = { enabled = true },
+                                                             LEVEL = { frames = 4 } }, limits = {}, journey = {} } },
+        characters = {
+            ["Forever:Nedisan"] = { visited = { ["map:37"] = true }, zonesSeeded = true, firstEvents = {}, quests = {} },
+        },
+        journal = {
+            { id = 1, t = 1795000000, char = "Forever:Nedisan", zone = "Elwynn Forest", events = { "LEVEL" },
+              keys = { "level:24" }, ok = 2, failed = 0, status = "success" },
+            { id = 2, t = 1795000100, char = "Forever:Nedisan", zone = "Westfall", events = { "LOOT_EPIC" },
+              keys = { "loot:1" }, ok = 0, failed = 1, status = "failed" },
+            { id = 3, t = 1795000200, char = "Forever:Alt", zone = "Durotar", events = { "MAX_LEVEL" },
+              keys = { "level:60" }, ok = 1, failed = 0, status = "success" },
+            { id = 4, t = 1795000300, zone = "Duskwood", events = { "ZONE" }, keys = { "z" }, ok = 1, status = "success" },
+            { id = 5, t = 1795000400, char = "Forever:Nedisan", zone = "Westfall", events = { "MOUNT" },
+              keys = { "mount:1" }, ok = 1, failed = 0, status = "success" },
+        },
+        nextJournalId = 6,
+        counters = { unattributed = 3 },
+        ui = { point = { "CENTER", "CENTER", 10, 20 } },
+    }
+end
+
+test("migration 0.4.2 -> 0.5.0 keeps history, stats and compatible settings", function()
+    local _, ns = start({ savedDB = oldDB() })
+    local db = ns.db
+    eq(db.schemaVersion, 3, "schema")
+    eq(db.settings.enabled, false, "pause kept")
+    eq(db.settings.locale, "ruRU", "language kept")
+    eq(db.settings.sound, true, "sound kept (it was set)")
+    eq(db.settings.minimap, false, "minimap kept")
+    eq(db.settings.scale, 1.3, "scale clamped to the new range")
+    eq(db.settings.events.DEATH, false, "a switch changed in the custom profile is kept")
+    eq(db.settings.events.LEVEL, true, "others on")
+    eq(db.settings.events.MOUNT, nil, "removed event dropped")
+    eq(db.settings.advanced, nil, "old settings removed")
+    eq(db.profiles, nil, "profiles removed")
+    eq(db.journal, nil, "journal moved")
+    local me = db.characters["Forever:Nedisan"]
+    eq(#me.shots, 2, "only saved shots of this character")
+    eq(me.shots[1].ev, "LEVEL", "event") eq(me.shots[1].info, 24, "level number")
+    eq(me.shots[2].ev, "MOUNT", "old event type kept for history")
+    eq(me.shotsTotal, 2, "total") eq(me.visited["map:37"], true, "visited zones kept")
+    local alt = db.characters["Forever:Alt"]
+    eq(#alt.shots, 1, "other character separate") eq(alt.shots[1].ev, "LEVEL", "max level -> level")
+    eq(alt.shots[1].info, 60, "max level number")
+    eq(#db.legacy, 1, "record without a character is not given to anyone")
+    eq(db.counters.unattributed, 3, "counters kept")
+    eq(db.ui.point[3], 10, "window position kept")
+    eq(me.steps.total, 0, "no invented steps before the tracker existed")
+    noErrors(ns)
 end)
 
-test("T24 corrupted configuration is repaired", function()
+test("migration runs once: loading again does not duplicate records", function()
+    local _, ns = start({ savedDB = oldDB() })
+    local saved = ns.db
+    local _, ns2 = start({ savedDB = saved })
+    eq(#ns2.db.characters["Forever:Nedisan"].shots, 2, "same records")
+    eq(ns2.db.characters["Forever:Nedisan"].shotsTotal, 2, "same total")
+end)
+
+test("migration from a preset profile gives the new defaults (all on)", function()
+    local db = oldDB()
+    db.settings.defaultProfile = "Adventurer"
+    local _, ns = start({ savedDB = db })
+    for _, id in ipairs(ns.Registry.EVENTS) do
+        eq(ns.db.settings.events[id], true, id)
+    end
+end)
+
+test("T24 damaged data is repaired without errors", function()
     local _, ns = start({ savedDB = {
-        schemaVersion = 2, settings = { enabled = "yes", scale = 9, locale = "xx", bogus = 1 },
-        profiles = { Bad = 5, Good = { rules = 3 } }, characters = 7,
-        journal = { { id = 1, t = 1 }, "junk", { id = "x" } }, extraKey = true,
+        schemaVersion = 3,
+        settings = { enabled = "yes", scale = 9, locale = "xx", mode = "dual", bogus = 1, events = { LEVEL = "on", RARE = true } },
+        characters = { ["Forever:Nedisan"] = { shots = { { t = 1, ev = "LEVEL" }, "junk" }, steps = { total = "x", days = { a = -1 } } },
+                       [5] = {} },
+        extraKey = true,
     } })
-    eq(ns.db.settings.enabled, true, "enabled")
-    eq(ns.db.settings.scale, 1, "scale")
-    eq(ns.db.settings.locale, "auto", "locale")
-    eq(ns.db.settings.bogus, nil, "unknown setting removed")
-    eq(ns.db.profiles.Bad, nil, "bad profile removed")
-    eq(type(ns.db.profiles.Good.rules), "table", "rules repaired")
-    eq(#ns.db.journal, 1, "invalid journal entries removed")
-    eq(ns.db.nextJournalId, 2, "next id")
+    local s = ns.db.settings
+    eq(s.enabled, true, "enabled") eq(s.scale, 1, "scale") eq(s.locale, "auto", "locale")
+    eq(s.mode, "normal", "mode") eq(s.bogus, nil, "unknown setting")
+    eq(s.events.LEVEL, true, "event repaired") eq(s.events.RARE, nil, "unknown event removed")
+    local c = ns.db.characters["Forever:Nedisan"]
+    eq(#c.shots, 1, "bad records removed") eq(c.steps.total, 0, "steps total") eq(c.steps.days.a, nil, "bad day")
     eq(ns.db.extraKey, nil, "unknown key removed")
 end)
 
 ---------------------------------------------------------------------------
--- Profiles
+-- Capture
 ---------------------------------------------------------------------------
-test("Adventurer matches the spec table", function()
-    local _, ns = start()
-    local rules = ns.Profiles.Current().rules
-    eq(rules.LEVEL.enabled, true) eq(rules.LEVEL.frames, 2) eq(rules.LEVEL.mode, "clean")
-    eq(rules.MAX_LEVEL.priority, 1) eq(rules.ZONE.delay, 2) eq(rules.BOSS.mode, "normal")
-    eq(rules.DEATH.enabled, false) eq(rules.MANUAL.priority, 0)
-end)
-
-test("editing a preset creates Custom, presets stay unchanged", function()
-    local _, ns = start()
-    ns.Profiles.SetRule("LEVEL", "frames", 4)
-    eq(ns.Profiles.ActiveName(), "Custom", "switched")
-    eq(ns.Profiles.Current().rules.LEVEL.frames, 4, "custom value")
-    eq(ns.Profiles.Resolve("Adventurer").rules.LEVEL.frames, 2, "preset untouched")
-end)
-
-test("character override, rename and delete keep references valid", function()
-    local _, ns = start()
-    assert(ns.Profiles.Copy("Explorer", "Mine"))
-    ns.Profiles.SetActive("Mine", true)
-    eq(ns.Profiles.ActiveName(), "Mine", "override")
-    assert(ns.Profiles.Rename("Mine", "Ours"))
-    eq(ns.Profiles.ActiveName(), "Ours", "renamed reference")
-    assert(ns.Profiles.Delete("Ours"))
-    eq(ns.Profiles.ActiveName(), "Adventurer", "fallback after delete")
-    eq((ns.Profiles.Delete("Explorer")), false, "preset delete refused")
-end)
-
-test("unsupported triggers are never enabled (Archivist)", function()
-    local _, ns = start()
-    ns.Profiles.SetActive("Archivist")
-    local rules = ns.Profiles.Current().rules
-    eq(rules.DEATH.enabled, true, "supported on")
-    eq(rules.RARE.enabled, false, "RARE off")
-    eq(rules.BG.enabled, false, "BG off")
-end)
-
----------------------------------------------------------------------------
--- Capture flow
----------------------------------------------------------------------------
-test("T03 new level: 2 clean frames, UI hidden for the shot and restored", function()
+test("T03 new level: one normal shot, counted after the game confirms it", function()
     local env, ns = start()
     levelUp(env, 11)
-    env.advance(10)
-    local entry = last(ns)
-    eq(entry.events[1], "LEVEL", "event")
-    eq(entry.status, "success", "status")
-    eq(entry.ok, 2, "frames")
-    eq(entry.modeActual, "clean", "mode")
-    eq(env.uiShownAtShot, false, "UI hidden during shot")
-    eq(UIParent:IsShown(), true, "UI restored")
+    eq(ns.History.Stats().total, 0, "not counted before the result")
+    env.advance(5)
+    eq(env.screenshotCalls, 1, "one shot")
+    local record = lastShot(ns)
+    eq(record.ev, "LEVEL", "event") eq(record.info, 11, "level")
+    eq(ns.History.Title(record), "Reached level 11", "title")
+    local s = ns.History.Stats()
+    eq(s.total, 1, "total") eq(s.today, 1, "today") eq(s.zones, 1, "zones")
+    eq(env.uiShownAtShot, true, "normal shot keeps the game UI")
+end)
+
+test("max level is a normal level-up, not a separate event", function()
+    local env, ns = start()
+    env.level = 60
+    levelUp(env, 60)
+    env.advance(5)
+    eq(#shots(ns), 1, "one shot") eq(lastShot(ns).ev, "LEVEL", "LEVEL")
 end)
 
 test("T04 disabled event: no automatic shot", function()
     local env, ns = start()
-    ns.Profiles.SetRule("LEVEL", "enabled", false)
+    ns.db.settings.events.LEVEL = false
     levelUp(env, 11)
-    env.advance(10)
+    env.advance(5)
     eq(env.screenshotCalls, 0, "no calls")
 end)
 
-test("T05 same key within cooldown: one request", function()
+test("T05 the same event twice within the window: one shot", function()
     local env, ns = start()
-    levelUp(env, 11)
-    levelUp(env, 11)
-    env.advance(10)
-    eq(#ns.db.journal, 1, "one record")
-end)
-
-test("T06 level and max level at once: only MAX_LEVEL", function()
-    local env, ns = start()
-    levelUp(env, 60)
-    env.advance(15)
-    eq(#ns.db.journal, 1, "one record")
-    eq(last(ns).events[1], "MAX_LEVEL", "event")
-    eq(last(ns).ok, 3, "3 frames")
-end)
-
-test("T07 compatible events merge: one request, all reasons", function()
-    local env, ns = start()
-    ns.Events.Emit("BOSS", "boss:1:1")
-    ns.Events.Emit("MOUNT", "mount:5")
-    env.advance(10)
-    eq(#ns.db.journal, 1, "one record")
-    eq(#last(ns).events, 2, "both reasons")
-end)
-
-test("T08 incompatible modes are not merged", function()
-    local env, ns = start()
-    ns.Events.Emit("BOSS", "boss:1:1")   -- normal
-    levelUp(env, 11)                      -- clean
-    env.advance(20)
-    eq(#ns.db.journal, 2, "two records")
-end)
-
-test("T09 full queue: bounded, least important dropped and logged", function()
-    local env, ns = start()
-    env.screenshotMode = "silent"
-    ns.Profiles.SetRule("DEATH", "enabled", true)
-    ns.Profiles.SetRule("DEATH", "delay", 10)
-    for i = 1, 30 do
-        ns.Events.Emit("DEATH", "death:" .. i)
-        env.advance(0.6) -- outside the merge window
-    end
-    eq(ns.Queue.Size() <= 20, true, "bounded")
-    local skipped = 0
-    for _, e in ipairs(ns.db.journal) do
-        if e.skipReason == "queue_full" then skipped = skipped + 1 end
-    end
-    eq(skipped >= 5, true, "drops recorded")
-end)
-
-test("T10 expired TTL: no stale shot", function()
-    local env, ns = start()
-    env.fire("PLAYER_LEAVING_WORLD")
-    ns.Events.Emit("BOSS", "boss:9:1")
-    env.advance(30)
-    env.fire("PLAYER_ENTERING_WORLD")
+    env.fire("PLAYER_DEAD")
+    env.advance(0.2)
+    env.fire("PLAYER_DEAD")
     env.advance(5)
-    eq(env.screenshotCalls, 0, "no call")
+    eq(env.screenshotCalls, 1, "one call")
+    eq(#shots(ns), 1, "one record")
 end)
 
-test("T11 combat before clean: normal fallback, UI not hidden", function()
+test("items: rare / epic / legendary by quality, one shot per item, others ignored", function()
     local env, ns = start()
+    env.fire("CHAT_MSG_LOOT", "You receive loot: |cff0070dd|Hitem:10::|h[Blue Sword]|h|r.")
+    env.advance(3)
+    env.fire("CHAT_MSG_LOOT", "You receive loot: |cffa335ee|Hitem:11::|h[Purple Axe]|h|r.")
+    env.advance(3)
+    env.fire("CHAT_MSG_LOOT", "You receive item: |cffff8000|Hitem:12::|h[Orange Bow]|h|r.")
+    env.advance(3)
+    env.fire("CHAT_MSG_LOOT", "You receive loot: |cff1eff00|Hitem:13::|h[Green Ring]|h|r.")
+    env.fire("CHAT_MSG_LOOT", "Arthas receives loot: |cffa335ee|Hitem:14::|h[Other]|h|r.")
+    env.advance(3)
+    local list = shots(ns)
+    eq(#list, 3, "three shots")
+    eq(list[1].ev, "LOOT_RARE", "rare") eq(list[2].ev, "LOOT_EPIC", "epic") eq(list[3].ev, "LOOT_LEGENDARY", "legendary")
+    eq(string.find(list[2].info, "Purple Axe", 1, true) ~= nil, true, "item kept as info")
+end)
+
+test("duel: own win only", function()
+    local env, ns = start()
+    env.fire("CHAT_MSG_SYSTEM", "Arthas has defeated Nedisan in a duel")
+    env.advance(3)
+    eq(#shots(ns), 0, "loss ignored")
+    env.fire("CHAT_MSG_SYSTEM", "Nedisan has defeated Arthas in a duel")
+    env.advance(3)
+    eq(#shots(ns), 1, "win") eq(lastShot(ns).ev, "DUEL", "duel")
+end)
+
+test("boss: only a won encounter inside a dungeon or raid", function()
+    local env, ns = start()
+    env.fire("ENCOUNTER_END", 1, "World Boss", 0, 40, 1)
+    env.advance(3)
+    eq(#shots(ns), 0, "open world ignored")
+    env.instanceType = "party"
+    env.fire("ENCOUNTER_END", 2, "Van Cleef", 1, 5, 0)
+    env.advance(3)
+    eq(#shots(ns), 0, "wipe ignored")
+    env.fire("ENCOUNTER_END", 2, "Van Cleef", 1, 5, 1)
+    env.advance(3)
+    eq(#shots(ns), 1, "kill") eq(lastShot(ns).info, "Van Cleef", "boss name")
+end)
+
+test("zone: login zone seeded, a new zone once, a visited zone never again", function()
+    local env, ns = start()
+    eq(env.screenshotCalls, 0, "login zone not captured")
+    env.mapID, env.zone = 52, "Westfall"
+    env.fire("ZONE_CHANGED_NEW_AREA")
+    env.advance(5)
+    eq(#shots(ns), 1, "new zone")
+    env.mapID, env.zone = 37, "Elwynn Forest"
+    env.fire("ZONE_CHANGED_NEW_AREA")
+    env.advance(5)
+    env.mapID, env.zone = 52, "Westfall"
+    env.fire("ZONE_CHANGED_NEW_AREA")
+    env.advance(30)
+    eq(#shots(ns), 1, "known zones not again")
+end)
+
+test("guild: login is not a join; a real join is", function()
+    local env, ns = start()
+    env.advance(40) -- grace period over: "no guild" is known
+    eq(ns.character.guild, false, "not in a guild")
+    env.inGuild = true
+    env.fire("PLAYER_GUILD_UPDATE")
+    env.advance(3)
+    eq(#shots(ns), 1, "joined") eq(lastShot(ns).info, "Heroes", "guild name")
+    -- Next login: the client says "no guild" for a moment, then the guild.
+    local saved = ns.db
+    local env2 = Mock.new({ savedDB = saved })
+    env2.inGuild = false
+    local ns2 = env2.login(".")
+    env2.fire("PLAYER_GUILD_UPDATE")
+    env2.inGuild = true
+    env2.fire("PLAYER_GUILD_UPDATE")
+    env2.advance(40)
+    eq(#ns2.character.shots, 1, "no new shot at login")
+end)
+
+test("clean shot: UI hidden for the shot and restored", function()
+    local env, ns = start()
+    ns.db.settings.mode = "clean"
+    levelUp(env, 11)
+    env.advance(5)
+    eq(env.uiShownAtShot, false, "UI hidden during the shot")
+    eq(UIParent:IsShown(), true, "UI restored")
+end)
+
+test("T11 clean shot in combat: normal fallback, UI never hidden", function()
+    local env, ns = start()
+    ns.db.settings.mode = "clean"
     env.combat = true
     levelUp(env, 11)
-    env.advance(10)
-    eq(last(ns).modeActual, "normal", "fallback")
-    eq(env.uiShownAtShot, true, "UI visible")
+    env.advance(5)
+    eq(env.uiShownAtShot, true, "UI visible") eq(#shots(ns), 1, "shot taken")
 end)
 
-test("T12 combat starts while preparing clean: UI restored at once", function()
+test("T12 combat starts while preparing a clean shot: UI back at once", function()
     local env, ns = start()
+    ns.db.settings.mode = "clean"
     levelUp(env, 11)
-    env.advance(0.21) -- delay passed, UI hidden, waiting to settle
+    env.advance(0.52) -- delay 0.5 passed, settle 0.05 not yet
     eq(UIParent:IsShown(), false, "hidden while preparing")
     env.fire("PLAYER_REGEN_DISABLED")
-    env.combat = true
-    eq(UIParent:IsShown(), true, "restored on combat")
-    env.advance(10)
-    eq(UIParent:IsShown(), true, "still shown")
-end)
-
-test("T13 loading screen: active request cancelled, queue cleared", function()
-    local env, ns = start()
-    ns.Events.Emit("BOSS", "boss:1:1")
-    env.fire("PLAYER_LEAVING_WORLD")
+    eq(UIParent:IsShown(), true, "shown on combat")
     env.advance(5)
-    eq(env.screenshotCalls, 0, "no call")
-    eq(last(ns).skipReason, "loading", "reason")
-end)
-
-test("T14 Screenshot error: recorded, UI restored", function()
-    local env, ns = start({ screenshotMode = "error" })
-    levelUp(env, 11)
-    env.advance(10)
-    eq(last(ns).status, "failed", "status")
-    eq(UIParent:IsShown(), true, "UI restored")
-end)
-
-test("T15 no result: timeout, unconfirmed, no retry", function()
-    local env, ns = start({ screenshotMode = "silent" })
-    levelUp(env, 11)
-    env.advance(20)
-    eq(last(ns).status, "unconfirmed", "status")
-    eq(env.screenshotCalls, 1, "series stopped, no retry")
-    eq(UIParent:IsShown(), true, "UI restored")
-end)
-
-test("T16 late result does not change a new request", function()
-    local env, ns = start({ screenshotMode = "silent" })
-    ns.Engine.SubmitManual()
-    env.advance(6)
-    env.fire("SCREENSHOT_SUCCEEDED") -- late
-    eq(last(ns).status, "unconfirmed", "unchanged")
-    eq(ns.Engine.Session().unattributed, 1, "counted as not ours")
-end)
-
-test("T17 dual series: alternating frames, UI restored between", function()
-    local env, ns = start()
-    ns.Profiles.SetRule("BOSS", "mode", "dual")
-    ns.Profiles.SetRule("BOSS", "frames", 2)
-    ns.Events.Emit("BOSS", "boss:2:1")
-    env.advance(20)
-    eq(last(ns).ok, 4, "2 cycles x 2 frames")
-    eq(last(ns).modeActual, "clean+normal", "both modes")
 end)
 
 test("T18 UI hidden by the player stays hidden", function()
     local env, ns = start()
+    ns.db.settings.mode = "clean"
     UIParent:Hide()
     levelUp(env, 11)
-    env.advance(10)
-    eq(UIParent:IsShown(), false, "not shown by addon")
-end)
-
-test("T19 pause: queued automatic shots removed", function()
-    local env, ns = start()
-    ns.Events.Emit("BOSS", "boss:1:1")
-    ns.Engine.SetEnabled(false)
-    env.advance(10)
-    eq(env.screenshotCalls, 0, "no call")
-    ns.Events.Emit("BOSS", "boss:3:1")
-    env.advance(10)
-    eq(env.screenshotCalls, 0, "still none")
-end)
-
-test("T20 manual shot works while paused", function()
-    local env, ns = start()
-    ns.Engine.SetEnabled(false)
-    ns.Engine.ManualShot()
-    env.advance(2)
-    eq(last(ns).status, "success", "manual ok")
-end)
-
-test("manual timer counts down and can be cancelled", function()
-    local env, ns = start()
-    ns.db.settings.manualTimer = 3
-    ns.Engine.ManualShot()
-    env.advance(1)
-    eq(ns.Engine.CancelCountdown(), true, "cancelled")
     env.advance(5)
-    eq(env.screenshotCalls, 0, "no call")
-    ns.Engine.ManualShot()
-    env.advance(4)
-    eq(env.screenshotCalls, 1, "taken after timer")
+    eq(UIParent:IsShown(), false, "still hidden")
 end)
 
-test("T21 journey skipped while AFK or in combat, taken otherwise", function()
-    local env, ns = start()
-    ns.Profiles.SetRule("JOURNEY", "enabled", true)
-    ns.Profiles.SetJourney("interval", 5)
-    env.afk = true
-    env.advance(400)
-    eq(env.screenshotCalls, 0, "AFK: none")
-    env.afk = false
-    env.combat = true
-    env.advance(60)
-    eq(env.screenshotCalls, 0, "combat: none")
-    env.combat = false
-    env.advance(60)
-    eq(env.screenshotCalls, 1, "taken")
-    eq(last(ns).events[1], "JOURNEY", "journey record")
-end)
-
-test("T22 limit reached: automatic calls stop", function()
-    local env, ns = start()
-    ns.Profiles.SetLimit("perHour", 1)
-    ns.Profiles.SetRule("DEATH", "enabled", true)
-    ns.Events.Emit("DEATH", "death:1")
-    env.advance(5)
-    ns.Events.Emit("DEATH", "death:2")
-    env.advance(5)
-    eq(env.screenshotCalls, 1, "one call")
-end)
-
-test("T23 reload keeps data; characters are isolated", function()
+test("T13 loading screen: queued shot cancelled, nothing counted", function()
     local env, ns = start()
     levelUp(env, 11)
+    env.fire("PLAYER_LEAVING_WORLD")
+    env.advance(5)
+    eq(env.screenshotCalls, 0, "no shot during loading")
+    eq(#shots(ns), 0, "nothing counted")
+end)
+
+test("T14/T15 failed or unconfirmed screenshots never increase statistics", function()
+    local env, ns = start({ screenshotMode = "failed" })
+    levelUp(env, 11)
+    env.advance(5)
+    eq(#shots(ns), 0, "failed not counted")
+    env.screenshotMode = "silent"
+    levelUp(env, 12)
     env.advance(10)
-    local saved = ns.db
-    local env2 = Mock.new({ savedDB = saved })
-    _G.UnitName = function() return "Other" end
-    local ns2 = env2.login(".")
-    eq(#ns2.db.journal, 1, "journal kept")
-    eq(ns2.characterKey, "Forever:Other", "other character")
-    eq(ns2.db.characters["Forever:Nedisan"] ~= nil, true, "first character kept")
+    eq(#shots(ns), 0, "timeout not counted")
+    eq(UIParent:IsShown(), true, "UI fine")
 end)
 
-test("T25 journal limit, favorites protected", function()
-    local _, ns = start()
-    local journal = {}
-    for i = 1, 30 do journal[i] = { id = i, t = i, events = {}, fav = (i <= 5) or nil } end
-    ns.Journal.Trim(journal, 20, 10)
-    eq(#journal, 20, "trimmed")
-    eq(journal[1].id, 1, "favorite kept")
-    eq(journal[6].id, 16, "oldest normal removed")
-end)
-
-test("T26 unknown client event: trigger unavailable, no Lua error", function()
-    local _, ns = start({ unknownEvents = { NEW_MOUNT_ADDED = true } })
-    eq(ns.Registry.IsAvailable("MOUNT"), false, "MOUNT unavailable")
-    eq(ns.Profiles.Current().rules.MOUNT.enabled, false, "forced off")
-    eq(ns.Registry.IsAvailable("LEVEL"), true, "LEVEL fine")
-end)
-
-test("T28 Print Screen is counted, never attributed", function()
+test("T28 Print Screen is never counted as the addon's shot", function()
     local env, ns = start()
     env.fire("SCREENSHOT_STARTED")
     env.fire("SCREENSHOT_SUCCEEDED")
-    eq(#ns.db.journal, 0, "no record")
-    eq(ns.db.counters.unattributed, 1, "counted")
+    eq(#shots(ns), 0, "no record")
+    eq(ns.Engine.Session().unattributed, 1, "counted as foreign")
 end)
 
-test("T29 long session: bounded timers and queue", function()
+test("T19/T20 pause stops auto capture, manual shot still works", function()
     local env, ns = start()
-    ns.Profiles.SetRule("JOURNEY", "enabled", true)
-    ns.Profiles.SetRule("RANDOM", "enabled", true)
-    for _ = 1, 240 do env.advance(30) end -- 2 hours
-    eq(env.tickers, 1, "one ticker")
-    eq(#env.timers < 10, true, "few pending timers: " .. #env.timers)
-    eq(ns.Queue.Size(), 0, "empty queue")
-end)
-
-test("T30 deleting a record touches only the journal", function()
-    local env, ns = start()
-    ns.Engine.SubmitManual()
+    ns.Engine.SetEnabled(false)
+    levelUp(env, 11)
+    env.advance(5)
+    eq(env.screenshotCalls, 0, "no auto shot")
+    ns.Engine.ManualShot()
     env.advance(2)
-    local id = last(ns).id
-    eq(ns.Journal.Delete(id), true, "deleted")
-    eq(#ns.db.journal, 0, "gone")
+    eq(#shots(ns), 1, "manual works") eq(lastShot(ns).ev, "MANUAL", "manual")
+    eq(lastShot(ns).manual, true, "flag")
+end)
+
+test("T09 event storm: queue bounded, internal limit stops automatic calls", function()
+    local env, ns = start()
+    for i = 1, 100 do
+        env.fire("CHAT_MSG_LOOT", "You receive loot: |cffa335ee|Hitem:" .. (1000 + i) .. "::|h[X]|h|r.")
+    end
+    eq(ns.Queue.Size() <= 20, true, "queue bounded")
+    env.advance(120)
+    eq(env.screenshotCalls <= ns.Engine.LIMIT_PER_HOUR, true, "limit")
+    eq(ns.Queue.Size(), 0, "queue drained or expired")
+end)
+
+test("T23 characters are isolated; a new character starts at zero", function()
+    local env, ns = start()
+    levelUp(env, 11)
+    env.advance(5)
+    local saved = ns.db
+    local env2 = Mock.new({ savedDB = saved })
+    _G.UnitName = function() return "Alt" end
+    local ns2 = env2.login(".")
+    local s = ns2.History.Stats()
+    eq(s.total, 0, "new character: no shots") eq(ns2.Steps.Today(), 0, "no steps")
+    eq(#ns2.History.Recent(5), 0, "no history")
+    eq(#saved.characters["Forever:Nedisan"].shots, 1, "first character untouched")
+end)
+
+test("T26 unknown client event: event unavailable, greyed out, no Lua error", function()
+    local env, ns = start({ unknownEvents = { ENCOUNTER_END = true } })
+    eq(ns.Registry.IsAvailable("BOSS"), false, "unavailable")
+    ns.UI.Toggle("capture")
+    noErrors(ns)
 end)
 
 ---------------------------------------------------------------------------
--- Event parsing
+-- Step Tracker
 ---------------------------------------------------------------------------
-test("own epic and legendary loot from chat text", function()
+test("steps: walking and running count, standing does not", function()
     local env, ns = start()
-    env.fire("CHAT_MSG_LOOT", "You receive loot: |cnIQ4:|Hitem:19019::|h[Thunderfury]|h|r.")
+    env.advance(2)
+    eq(ns.Steps.Today(), 0, "idle")
+    walk(env, 10, 7)
+    near(ns.character.steps.days[ns.Util.DayKey(time())], stepsFor(70), 6, "70 yards")
+    local before = ns.character.steps.total
+    env.speed = 0
     env.advance(5)
-    eq(last(ns).events[1], "LOOT_EPIC", "epic")
-    env.fire("CHAT_MSG_LOOT", "You receive loot: |cffff8000|Hitem:17182::|h[Sulfuras]|h|r.")
-    env.advance(5)
-    eq(last(ns).events[1], "LOOT_LEGENDARY", "legendary (not epic)")
-    env.fire("CHAT_MSG_LOOT", "Bob receives loot: |cnIQ4:|Hitem:1::|h[X]|h|r.")
-    env.advance(5)
-    eq(#ns.db.journal, 2, "other players ignored")
+    eq(ns.character.steps.total, before, "standing adds nothing")
 end)
 
-test("duel win detected, loss ignored", function()
+test("steps: ground mount counts as equivalent steps", function()
     local env, ns = start()
-    ns.Profiles.SetRule("DUEL", "enabled", true)
-    env.fire("CHAT_MSG_SYSTEM", "Bob has defeated Nedisan in a duel")
-    env.advance(5)
-    eq(#ns.db.journal, 0, "loss ignored")
-    env.fire("CHAT_MSG_SYSTEM", "Nedisan has defeated Bob in a duel")
-    env.advance(5)
-    eq(last(ns).events[1], "DUEL", "win")
+    env.advance(1)
+    walk(env, 10, 14)
+    near(ns.character.steps.total, stepsFor(140), 10, "140 yards")
 end)
 
-test("first zone visit: login zone seeded, new zone captured once", function()
-    local env, ns = start()
-    env.advance(5)
-    eq(#ns.db.journal, 0, "login zone not captured")
-    env.mapID, env.zone = 12, "Westfall"
-    env.fire("ZONE_CHANGED_NEW_AREA")
-    env.advance(10)
-    eq(last(ns).events[1], "ZONE", "new zone")
-    env.mapID = 37
-    env.fire("ZONE_CHANGED_NEW_AREA")
-    env.mapID = 12
-    env.fire("ZONE_CHANGED_NEW_AREA")
-    env.advance(10)
-    eq(#ns.db.journal, 1, "visited zones ignored")
+test("steps: swimming, flying, taxi and vehicles are not counted", function()
+    for _, state in ipairs({ "swimming", "flying", "taxi", "vehicle" }) do
+        local env, ns = start()
+        env[state] = true
+        walk(env, 10, 7)
+        eq(ns.character.steps.total, 0, state)
+    end
 end)
 
-test("quest, guild and druid form triggers", function()
+test("steps: teleport, boat and zone change create no false steps", function()
     local env, ns = start()
-    for _, id in ipairs({ "QUEST", "GUILD", "FORM" }) do ns.Profiles.SetRule(id, "enabled", true) end
-    ns.character.quests[42] = true
-    env.fire("QUEST_TURNED_IN", 41) env.fire("QUEST_TURNED_IN", 42)
+    env.speed = 7
+    env.advance(1)
+    env.world.x = env.world.x + 3000 -- hearthstone / teleport
+    env.advance(1)
+    eq(ns.character.steps.total, 0, "teleport")
+    env.speed = 0 -- standing on a boat that moves
+    for _ = 1, 20 do
+        env.world.x = env.world.x + 3
+        env.advance(0.5)
+    end
+    eq(ns.character.steps.total, 0, "boat")
+    env.speed = 7
+    env.world.instance = 1 -- another continent
+    env.world.x = 0
+    env.advance(1)
+    eq(ns.character.steps.total, 0, "space change")
+    env.fire("PLAYER_LEAVING_WORLD")
+    walk(env, 5, 7)
+    eq(ns.character.steps.total, 0, "loading screen")
+end)
+
+test("steps: no coordinates -> own speed x time; nothing if exclusions unknown", function()
+    local env, ns = start()
+    env.unitPosition = false -- e.g. in an instance; mock has no map->world
+    env.advance(1)
+    walk(env, 10, 7)
+    near(ns.character.steps.total, stepsFor(70), 6, "speed fallback")
+    local env2, ns2 = start()
+    env2.unitPosition = false
+    _G.UnitOnTaxi = nil
+    walk(env2, 10, 7)
+    eq(ns2.character.steps.total, 0, "cannot exclude taxi -> nothing invented")
+end)
+
+test("steps: secret values are never used", function()
+    local env, ns = start()
+    _G.issecretvalue = function(v) return type(v) == "number" end
+    walk(env, 5, 7)
+    eq(ns.character.steps.total, 0, "secret speed")
+    noErrors(ns)
+end)
+
+test("steps: fractions accumulate, whole numbers shown", function()
+    local env, ns = start()
+    for _ = 1, 10 do
+        walk(env, 0.5, 0.3)
+    end
+    eq(ns.character.steps.total > 0, true, "small moves add up")
+    eq(ns.Steps.Total(), math.floor(ns.character.steps.total), "shown as whole number")
+end)
+
+test("steps: midnight splits the counting between days, no restart needed", function()
+    local midnight = os.time({ year = 2026, month = 11, day = 25, hour = 0 })
+    local env = Mock.new()
+    env.unix = midnight - 6
+    local ns = env.login(".")
+    env.advance(1)
+    walk(env, 10, 7)
+    local days = ns.character.steps.days
+    local before, after = days["2026-11-24"] or 0, days["2026-11-25"] or 0
+    eq(before > 0, true, "yesterday part") eq(after > 0, true, "today part")
+    near(before + after, stepsFor(70), 6, "sum")
+    eq(ns.Steps.Today(), math.floor(after), "today starts from zero")
+end)
+
+test("steps: kept after reload and next login, continue counting", function()
+    local env, ns = start()
+    walk(env, 10, 7)
+    local today = ns.Steps.Today()
+    local saved = ns.db
+    local env2 = Mock.new({ savedDB = saved })
+    _G.UnitName = function() return "Nedisan" end
+    local ns2 = env2.login(".")
+    eq(ns2.Steps.Today(), today, "same after reload")
+    walk(env2, 5, 7)
+    eq(ns2.Steps.Today() > today, true, "continues")
+end)
+
+test("steps work while auto capture is paused; an error in one module does not stop the other", function()
+    local env, ns = start()
+    ns.Engine.SetEnabled(false)
+    walk(env, 5, 7)
+    eq(ns.Steps.Today() > 0, true, "paused capture, steps go on")
+    ns.Engine.SetEnabled(true)
+    local realPosition = ns.API.WorldPosition
+    ns.API.WorldPosition = function() error("broken") end
+    walk(env, 2, 7)
+    levelUp(env, 11)
     env.advance(5)
-    env.inGuild = true env.fire("PLAYER_GUILD_UPDATE")
-    env.advance(5)
-    env.forms = 3 env.fire("UPDATE_SHAPESHIFT_FORMS")
-    env.advance(5)
-    local kinds = {}
-    for _, e in ipairs(ns.db.journal) do kinds[#kinds + 1] = e.events[1] end
-    eq(table.concat(kinds, ","), "QUEST,GUILD,FORM", "events")
+    eq(#shots(ns), 1, "capture works while steps fail")
+    ns.API.WorldPosition = realPosition
 end)
 
 ---------------------------------------------------------------------------
--- UI and commands (smoke tests: build every widget, click buttons)
+-- Formatting and locales
 ---------------------------------------------------------------------------
-test("window: every tab builds and refreshes", function()
-    local env, ns = start()
-    ns.Engine.SubmitManual()
-    env.advance(2)
-    for _, tab in ipairs(ns.UI.TABS) do
-        ns.UI.Open(tab)
-    end
-    eq(ForeverMemoriesMainFrame:IsShown(), true, "window shown")
-    for _, frame in ipairs(env.frames) do
-        if frame.kind == "Button" and frame.scripts.OnClick and frame.text ~= "" then
-            -- harmless buttons only
-            if frame.text == ns.L.TAKE_SHOT or frame.text == ns.L.TEST_SHOT or frame.text == ">" then
-                frame:Click()
-            end
-        end
-    end
-    env.advance(5)
-    for _, entry in ipairs(ns.Logger.Recent(200)) do
-        eq(entry.level ~= "ERROR", true, "no errors: " .. entry.msg)
-    end
-end)
-
-test("window is hidden during a shot and shown again", function()
-    local env, ns = start()
-    ns.UI.Open("home")
-    local shown
-    local original = _G.Screenshot
-    _G.Screenshot = function() shown = ForeverMemoriesMainFrame:IsShown() original() end
-    ns.Engine.SubmitManual()
-    env.advance(2)
-    eq(shown, false, "hidden at shot")
-    eq(ForeverMemoriesMainFrame:IsShown(), true, "back")
-end)
-
-test("first run, minimap, manual panel, settings and journal actions", function()
-    local env, ns = start()
-    env.autoConfirm = true
-    env.advance(6)
-    eq(ForeverMemoriesFirstRun:IsShown(), true, "first run shown")
-    ForeverMemoriesMinimapButton.scripts.OnEnter(ForeverMemoriesMinimapButton)
-    ForeverMemoriesMinimapButton:Click("RightButton")
-    eq(ns.db.settings.enabled, false, "paused by right click")
-    ForeverMemoriesMinimapButton:Click("MiddleButton")
-    env.advance(2)
-    eq(last(ns).manual, true, "manual by middle click")
-    ns.ManualPanel.Toggle()
-    eq(ForeverMemoriesManualPanel:IsShown(), true, "panel")
-    ns.Journal.Update(last(ns).id, { note = "hi", fav = true })
-    eq(last(ns).note, "hi", "note")
-    ForeverMemories_OnAddonCompartmentClick()
-    ForeverMemories_ManualShot()
-    env.advance(2)
-end)
-
--- Frames that need no tooltip of ours: the game's close button, the
--- invisible click catcher and the rows of the open dropdown list.
-local function needsTooltip(frame)
-    if frame.kind ~= "Button" and frame.kind ~= "CheckButton" and frame.kind ~= "EditBox" then
-        return false
-    end
-    if frame.template == "UIPanelCloseButton" then
-        return false
-    end
-    local list = _G.ForeverMemoriesDropdownList
-    if frame.parent == UIParent and not frame.template and frame.kind == "Button" then
-        return false -- click catcher of the dropdown list
-    end
-    return not (list and frame.parent == list)
-end
-
-test("tooltips: every control explains itself on mouse over", function()
-    local env, ns = start()
-    env.advance(6) -- first run window
-    ns.Engine.SubmitManual()
-    env.advance(2)
-    ns.db.settings.advanced = true
-    for _, tab in ipairs(ns.UI.TABS) do
-        ns.UI.Open(tab)
-    end
-    ns.ManualPanel.Toggle()
-    local checked = 0
-    for _, frame in ipairs(env.frames) do
-        if needsTooltip(frame) then
-            local onEnter = frame.scripts.OnEnter
-            eq(type(onEnter), "function", "OnEnter on " .. frame.kind .. " '" .. tostring(frame.text) .. "'")
-            env.tooltip = {}
-            onEnter(frame)
-            local text = table.concat(env.tooltip, "\n")
-            eq(#text > 0, true, "tooltip text on " .. frame.kind .. " '" .. tostring(frame.text) .. "'")
-            eq(text:find("TIP_", 1, true), nil, "no raw key in tooltip: " .. text)
-            checked = checked + 1
-        end
-    end
-    eq(checked > 100, true, "many controls checked (" .. checked .. ")")
-    for _, entry in ipairs(ns.Logger.Recent(200)) do
-        eq(entry.level ~= "ERROR", true, "no errors: " .. entry.msg)
-    end
-end)
-
-test("tooltips: title is the label, unavailable events say why", function()
-    local env, ns = start({ locale = "ruRU" })
-    ns.UI.Open("events")
-    local rare
-    for _, frame in ipairs(env.frames) do
-        if frame.kind == "CheckButton" and frame.scripts.OnEnter then
-            env.tooltip = {}
-            frame.scripts.OnEnter(frame)
-            if env.tooltip[1] == ns.L.TRIGGER_RARE then
-                rare = table.concat(env.tooltip, "\n")
-            end
-        end
-    end
-    eq(rare ~= nil, true, "RARE row tooltip")
-    eq(rare:find(ns.L.TIP_TRIGGER_RARE, 1, true) ~= nil, true, "explains the event")
-    eq(rare:find(ns.L.REASON_NO_COMBAT_LOG, 1, true) ~= nil, true, "explains why unavailable")
-    eq(rare:find("журнал боя", 1, true) ~= nil, true, "in Russian")
-end)
-
--- Finds a shown button by its text (dropdown buttons show the current option).
-local function findButton(env, text)
-    for _, frame in ipairs(env.frames) do
-        if frame.kind == "Button" and frame.text == text and frame.scripts.OnClick then
-            return frame
-        end
-    end
-end
-
-test("dropdown opens a list, a pick saves the value and closes the list", function()
-    local env, ns = start()
-    ns.UI.Open("capture")
-    local button = assert(findButton(env, ns.L.TIMER_OFF), "timer dropdown")
-    button:Click()
-    local list = ForeverMemoriesDropdownList
-    eq(list:IsShown(), true, "list open")
-    eq(list.rows[4]:IsShown(), true, "4 options")
-    eq(list.rows[3].text:GetText(), "5 s", "option text")
-    list.rows[3]:Click()
-    eq(list:IsShown(), false, "closed after pick")
-    eq(ns.db.settings.manualTimer, 5, "saved in SavedVariables table")
-    eq(button.text, "5 s", "button shows the new value")
-    button:Click()
-    button:Click()
-    eq(list:IsShown(), false, "second click closes")
-    button:Click()
-    list.catcher:Click()
-    eq(list:IsShown(), false, "click outside closes")
-end)
-
-test("profile and rule mode dropdowns save through Profiles", function()
-    local env, ns = start()
-    ns.UI.Open("home")
-    findButton(env, ns.L.PRESET_Adventurer):Click()
-    local list = ForeverMemoriesDropdownList
-    local target
-    for i, row in ipairs(list.rows) do
-        if row:IsShown() and row.value == "Explorer" then target = row end
-    end
-    assert(target, "Explorer listed"):Click()
-    eq(ns.Profiles.ActiveName(), "Explorer", "profile switched")
-end)
-
-test("language: saved at once, reload only after consent", function()
-    local env, ns = start()
-    ns.UI.Open("settings")
-    local button = assert(findButton(env, ns.L.LANG_AUTO), "language dropdown")
-    -- "No": the choice stays saved, nothing reloads.
-    button:Click()
-    ForeverMemoriesDropdownList.rows[2]:Click() -- Русский
-    eq(ns.db.settings.locale, "ruRU", "saved")
-    eq(#env.popups, 1, "asked")
-    eq(env.popups[1], ns.L.CONFIRM_RELOAD_LANGUAGE, "reload question")
-    eq(env.reloads, 0, "no reload without consent")
-    -- "Yes": reload.
-    env.autoConfirm = true
-    button:Click()
-    ForeverMemoriesDropdownList.rows[1]:Click() -- auto (= enUS here, already shown)
-    eq(#env.popups, 1, "no question when the visible language does not change")
-    button:Click()
-    ForeverMemoriesDropdownList.rows[2]:Click()
-    eq(env.reloads, 1, "reloaded after consent")
-    -- After the reload the saved language is used.
-    local env2, ns2 = start({ savedDB = ns.db })
-    eq(ns2.L.TAKE_SHOT, "Сделать кадр", "russian after reload")
-end)
-
-test("slash commands", function()
-    local env, ns = start()
-    for _, cmd in ipairs({ "", "on", "off", "toggle", "shot", "status", "debug", "log", "ui",
-                           "panel", "quest add 5", "quest remove 5", "quest", "nonsense" }) do
-        SlashCmdList.FOREVERMEMORIES(cmd)
-    end
-    env.advance(3)
-    for _, entry in ipairs(ns.Logger.Recent(200)) do
-        eq(entry.level ~= "ERROR", true, "no errors: " .. entry.msg)
-    end
-end)
-
-test("ruRU locale is complete and used", function()
+test("numbers: separators and Russian word forms", function()
     local _, ns = start({ locale = "ruRU" })
-    eq(ns.L.TAKE_SHOT, "Сделать кадр", "russian")
-    for key in pairs(ns.locales.enUS) do
-        eq(ns.locales.ruRU[key] ~= nil, true, "ruRU missing " .. key)
+    eq(ns.Count(0, "STEPS"), "0 шагов") eq(ns.Count(1, "STEPS"), "1 шаг")
+    eq(ns.Count(22, "STEPS"), "22 шага") eq(ns.Count(11, "STEPS"), "11 шагов")
+    eq(ns.Count(245, "STEPS"), "245 шагов") eq(ns.Count(1258, "STEPS"), "1 258 шагов")
+    eq(ns.Num(12458), "12 458") eq(ns.Count(1245872, "STEPS"), "1 245 872 шага")
+    eq(ns.Count(3, "SHOTS"), "3 снимка")
+    local _, en = start()
+    eq(en.Count(12458, "STEPS"), "12,458 steps") eq(en.Count(1, "SHOTS"), "1 screenshot")
+end)
+
+local function keysOf(t)
+    local keys = {}
+    for k in pairs(t) do keys[#keys + 1] = k end
+    return keys
+end
+
+test("T27 ruRU has every English key, and no distance units are shown", function()
+    local _, ns = start()
+    for _, key in ipairs(keysOf(ns.locales.enUS)) do
+        if not string.find(key, "_one$") or key ~= "x" then
+            eq(ns.locales.ruRU[key] ~= nil, true, "ruRU." .. key)
+        end
     end
-    for key in pairs(ns.locales.ruRU) do
-        eq(ns.locales.enUS[key] ~= nil, true, "enUS missing " .. key)
+    for _, code in ipairs({ "enUS", "ruRU" }) do
+        for key, text in pairs(ns.locales[code]) do
+            local lower = string.lower(text)
+            for _, unit in ipairs({ " km", "meter", "metre", " yard", "метр", " км", "ярд" }) do
+                eq(string.find(lower, unit, 1, true), nil, code .. "." .. key .. " has '" .. unit .. "'")
+            end
+        end
     end
 end)
 
 test("every L.KEY used in code exists in enUS", function()
     local _, ns = start()
-    local files = io.popen("find Core Capture Modules UI -name '*.lua'")
-    for path in files:lines() do
-        local source = assert(io.open(path)):read("*a")
-        for key in source:gmatch("[^%w_]L%.([A-Z][%w_]+)") do
-            eq(ns.locales.enUS[key] ~= nil, true, path .. ": " .. key)
+    local files = { "Core/Commands.lua", "Core/Events.lua", "Modules/History.lua", "Modules/Notifications.lua",
+                    "UI/Main.lua", "UI/Capture.lua", "UI/History.lua", "UI/Settings.lua", "UI/Minimap.lua" }
+    for _, file in ipairs(files) do
+        local text = assert(io.open(file)):read("*a")
+        for key in string.gmatch(text, "L%.([%u_][%w_]*)") do
+            eq(ns.locales.enUS[key] ~= nil, true, file .. ": L." .. key)
         end
     end
-    files:close()
-    local families = { TRIGGER_ = {}, TIP_TRIGGER_ = {}, TAB_ = ns.UI.TABS, TIP_TAB_ = ns.UI.TABS,
-                       TIP_PRESET_ = ns.Profiles.PRESET_ORDER, STATUS_ = { "success", "partial", "unconfirmed", "failed", "skipped" },
-                       MODE_ = { "normal", "clean", "dual" }, PRESET_ = ns.Profiles.PRESET_ORDER,
-                       REASON_ = { "disabled", "paused", "not_first", "cooldown", "unknown_trigger", "limit_session",
-                                   "limit_hour", "limit_journey", "queue_full", "expired", "loading", "timeout", "not_loaded" } }
-    for _, t in ipairs(ns.Registry.TRIGGERS) do
-        table.insert(families.TRIGGER_, t.id)
-        table.insert(families.TIP_TRIGGER_, t.id)
-    end
-    for prefix, list in pairs(families) do
-        for _, suffix in ipairs(list) do
-            eq(ns.locales.enUS[prefix .. suffix] ~= nil, true, prefix .. suffix)
+end)
+
+---------------------------------------------------------------------------
+-- Window
+---------------------------------------------------------------------------
+local function texts(env)
+    local all = {}
+    for _, frame in ipairs(env.frames) do
+        if frame.shown and type(frame.text) == "string" and frame.text ~= "" then
+            all[#all + 1] = frame.text
         end
     end
+    return all
+end
+
+local function hasText(env, wanted)
+    for _, text in ipairs(texts(env)) do
+        if text == wanted then return true end
+    end
+    return false
+end
+
+local function findButton(env, text)
+    for _, frame in ipairs(env.frames) do
+        if frame.kind == "Button" and type(rawget(frame, "label")) == "table" and frame.label.text == text then
+            return frame
+        end
+    end
+end
+
+test("window: four tabs, each builds and refreshes without errors", function()
+    local env, ns = start()
+    eq(#ns.UI.TABS, 4, "four tabs")
+    ns.UI.Toggle()
+    for _, id in ipairs(ns.UI.TABS) do
+        ns.UI.ShowTab(id)
+        eq(ns.UI.CurrentTab(), id, id)
+    end
+    for _, name in ipairs({ "Home", "Auto capture", "History", "Settings" }) do
+        eq(findButton(env, name) ~= nil, true, "tab " .. name)
+    end
+    for _, gone in ipairs({ "Events", "Journey", "Profiles", "Diagnostics", "About" }) do
+        eq(findButton(env, gone), nil, "no tab " .. gone)
+    end
+    noErrors(ns)
+end)
+
+test("home: statistics cards, last shots, empty message and View all", function()
+    local env, ns = start()
+    ns.UI.Toggle()
+    eq(hasText(env, "This character has no screenshots yet"), true, "empty message")
+    levelUp(env, 11)
+    env.advance(5)
+    walk(env, 10, 7)
+    ns.UI.ShowTab("home")
+    eq(hasText(env, "Nedisan"), true, "character name")
+    eq(hasText(env, "Reached level 11"), true, "recent shot")
+    eq(hasText(env, ns.Num(ns.Steps.Today())), true, "steps today")
+    findButton(env, "Settings"):Click()
+    ns.UI.ShowTab("home")
+    for _, frame in ipairs(env.frames) do
+        if type(rawget(frame, "label")) == "table" and frame.label.text == "View all screenshots  >" then frame:Click() end
+    end
+    eq(ns.UI.CurrentTab(), "history", "opens history")
+end)
+
+test("history: thousands of records use a few rows, grouped by day", function()
+    local env, ns = start()
+    local c = ns.character
+    local t0 = time() - 3 * 86400
+    for i = 1, 3000 do
+        local record = { t = t0 + i * 60, ev = "ZONE", zone = "Zone " .. (i % 7) }
+        c.shots[#c.shots + 1] = record
+        ns.Database.CountShot(c, record)
+    end
+    local before = #env.frames
+    ns.UI.Toggle("history", "shots")
+    local created = #env.frames - before
+    eq(created < 1500, true, "frames created: " .. created)
+    local rows = ns.History.Rows()
+    eq(rows[1].kind, "day", "first row is a day")
+    eq(rows[2].record.t > rows[3].record.t, true, "newest first")
+    findButton(env, "Steps"):Click()
+    noErrors(ns)
+end)
+
+test("history: seven-day chart and daily steps", function()
+    local env, ns = start()
+    local today = ns.Util.DayKey(time())
+    ns.character.steps.days[ns.Util.DayBefore(today, 2)] = 5000
+    ns.character.steps.days[today] = 1200
+    ns.UI.Toggle("history", "steps")
+    eq(hasText(env, "5,000"), true, "bar value")
+    eq(hasText(env, "1,200"), true, "today value")
+    local days = ns.Steps.Days()
+    eq(days[1].day, today, "newest first")
+end)
+
+test("settings: checks, language with consent, scale and window position", function()
+    local env, ns = start()
+    env.autoConfirm = false
+    ns.UI.Toggle("settings")
+    findButton(env, "Automatic"):Click()
+    local russian
+    for _, frame in ipairs(env.frames) do
+        if type(rawget(frame, "text")) == "table" and frame.text.text == "Русский" then russian = frame end
+    end
+    russian:Click()
+    eq(ns.db.settings.locale, "ruRU", "saved at once")
+    eq(env.reloads, 0, "no reload without consent")
+    eq(#env.popups, 1, "asked")
+    ns.UI.ResetPosition()
+    eq(ns.db.ui.point, nil, "position reset")
+end)
+
+test("minimap: left window, right pause, middle shot; tooltip shows steps", function()
+    local env, ns = start()
+    local button = _G.ForeverMemoriesMinimapButton
+    button:Click("RightButton")
+    eq(ns.db.settings.enabled, false, "paused")
+    button:Click("MiddleButton")
+    env.advance(2)
+    eq(#shots(ns), 1, "manual shot")
+    button:Click("LeftButton")
+    eq(ns.UI.IsShown(), true, "window")
+    button.scripts.OnEnter(button)
+    local found = false
+    for _, line in ipairs(env.tooltip) do
+        if string.find(line, "Steps today", 1, true) then found = true end
+    end
+    eq(found, true, "steps in tooltip")
+end)
+
+test("window and notification are hidden during a shot", function()
+    local env, ns = start()
+    ns.UI.Toggle()
+    levelUp(env, 11)
+    env.advance(0.53)
+    eq(_G.ForeverMemoriesMainFrame:IsShown(), false, "hidden for the shot")
+    env.advance(1)
+    eq(_G.ForeverMemoriesMainFrame:IsShown(), true, "back")
+    eq(_G.ForeverMemoriesToast:IsShown(), true, "notification after the shot")
+    env.advance(4)
+    eq(_G.ForeverMemoriesToast:IsShown(), false, "notification gone")
+end)
+
+test("slash commands run without errors", function()
+    local env, ns = start()
+    for _, command in ipairs({ "", "status", "debug", "log", "ui", "reset", "off", "on", "toggle", "shot", "help" }) do
+        SlashCmdList.FOREVERMEMORIES(command)
+    end
+    env.advance(3)
+    noErrors(ns)
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))

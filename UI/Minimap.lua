@@ -1,14 +1,16 @@
 -- UI/Minimap.lua
--- Minimap button: left click - window, right click - pause/resume,
--- middle click - manual shot. Drag to move around the minimap.
+-- Minimap button (spec 9): left click - window, right click - pause /
+-- resume, middle click - manual shot. Drag to move it around the minimap.
+-- The icon turns grey while auto capture is paused.
 local _, ns = ...
 
 local L = ns.L
+local W = ns.Widgets
 
 local Minimap = {}
 ns.Minimap = Minimap
 
-local button
+local button, icon
 
 local function place()
     local angle = math.rad(ns.db.settings.minimapAngle)
@@ -26,6 +28,25 @@ local function onDragUpdate()
     place()
 end
 
+local function showTooltip(self)
+    local enabled = ns.db.settings.enabled
+    local stats = ns.History.Stats()
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    local h = W.COLORS.heading
+    GameTooltip:SetText("ForeverMemories", h[1], h[2], h[3])
+    local s = enabled and W.COLORS.active or W.COLORS.paused
+    GameTooltip:AddLine(L.AUTO_CAPTURE .. ": " .. (enabled and L.STATE_ACTIVE or L.STATE_PAUSED), s[1], s[2], s[3])
+    GameTooltip:AddLine(ns.character and ns.character.name or "?", 1, 1, 1)
+    GameTooltip:AddLine(L.STAT_TODAY .. ": " .. ns.Num(stats.today), 1, 1, 1)
+    GameTooltip:AddLine(L.STAT_STEPS_TODAY .. ": " .. ns.Num(ns.Steps.Today()), 1, 1, 1)
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine(L.MINIMAP_HINT_LEFT, 0.65, 0.62, 0.56)
+    GameTooltip:AddLine(L.MINIMAP_HINT_RIGHT, 0.65, 0.62, 0.56)
+    GameTooltip:AddLine(L.MINIMAP_HINT_MIDDLE, 0.65, 0.62, 0.56)
+    GameTooltip:AddLine(L.MINIMAP_HINT_DRAG, 0.65, 0.62, 0.56, true)
+    GameTooltip:Show()
+end
+
 local function build()
     button = CreateFrame("Button", "ForeverMemoriesMinimapButton", _G.Minimap)
     button:SetSize(31, 31)
@@ -33,7 +54,7 @@ local function build()
     button:SetFrameLevel(8)
     button:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp")
     button:RegisterForDrag("LeftButton")
-    local icon = button:CreateTexture(nil, "BACKGROUND")
+    icon = button:CreateTexture(nil, "BACKGROUND")
     icon:SetTexture("Interface\\Icons\\INV_Misc_Spyglass_03")
     icon:SetSize(20, 20)
     icon:SetPoint("CENTER")
@@ -43,7 +64,7 @@ local function build()
     border:SetPoint("TOPLEFT")
     button:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
 
-    button:SetScript("OnClick", function(_, mouseButton)
+    button:SetScript("OnClick", function(self, mouseButton)
         if mouseButton == "RightButton" then
             ns.Engine.SetEnabled(not ns.db.settings.enabled)
         elseif mouseButton == "MiddleButton" then
@@ -51,30 +72,30 @@ local function build()
         else
             ns.UI.Toggle()
         end
+        if GameTooltip:IsOwned(self) then
+            showTooltip(self)
+        end
     end)
     button:SetScript("OnDragStart", function(self) self:SetScript("OnUpdate", onDragUpdate) end)
     button:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
-    button:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:AddLine("ForeverMemories")
-        GameTooltip:AddLine(L.AUTO_CAPTURE .. ": " .. (ns.db.settings.enabled and L.ON or L.OFF), 1, 1, 1)
-        GameTooltip:AddLine(string.format(L.TOOLTIP_TODAY, ns.Statistics.Get().today), 1, 1, 1)
-        GameTooltip:AddLine(L.TOOLTIP_HINT, 0.6, 0.6, 0.6)
-        GameTooltip:AddLine(L.TIP_MINIMAP_DRAG, 0.6, 0.6, 0.6, true)
-        GameTooltip:Show()
-    end)
+    button:SetScript("OnEnter", showTooltip)
     button:SetScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
+-- Shows or hides the button and paints the paused state.
 function Minimap.Update()
-    if not _G.Minimap then
+    if not _G.Minimap or not ns.db then
         return
     end
     if not button then
         build()
     end
     button:SetShown(ns.db.settings.minimap)
+    if icon.SetDesaturated then
+        icon:SetDesaturated(not ns.db.settings.enabled)
+    end
     place()
 end
 
 table.insert(ns.onLogin, Minimap.Update)
+table.insert(ns.Engine.stateListeners, Minimap.Update)

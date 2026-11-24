@@ -1,10 +1,10 @@
 -- Capture/Engine.lua
--- Runs one capture request at a time (ARCHITECTURE.md section 4):
---   IDLE -> PREPARING -> CAPTURING -> WAIT_RESULT -> RESTORING
---        -> (INTERVAL -> PREPARING ...) -> IDLE
+-- Runs one capture request at a time, one screenshot per request:
+--   IDLE -> PREPARING -> CAPTURING -> WAIT_RESULT -> IDLE
 -- A result counts only from SCREENSHOT_SUCCEEDED / SCREENSHOT_FAILED
 -- (confirmed in Forever: async, about 0.08 s, one signal per file).
 -- Every timer carries a token; changing state invalidates old timers.
+-- Delays, priorities, limits and the queue are internal (spec 5.4).
 local _, ns = ...
 
 local Engine = {}
@@ -13,8 +13,10 @@ ns.Engine = Engine
 Engine.RESULT_TIMEOUT = 5  -- seconds to wait for the result event
 Engine.QUARANTINE = 5      -- seconds after a timeout when results are ignored
 Engine.SETTLE = 0.05       -- let hidden frames disappear before the shot
-Engine.PAIR_GAP = 0.3      -- between the normal and clean frame of "dual"
-Engine.onComplete = {}     -- functions(entry, request)
+Engine.LIMIT_PER_HOUR = 60 -- automatic shots; protects from event storms
+Engine.LIMIT_PER_SESSION = 300
+Engine.onComplete = {}     -- functions(record or nil, request, result)
+Engine.stateListeners = {} -- pause / resume
 
 local API = ns.API
 local state = "IDLE"
@@ -24,9 +26,9 @@ local inWorld = false
 local quarantineUntil = 0
 local nextWakeAt = nil
 local lastByKey = {}
-local autoCalls, journeyCalls = {}, {}
+local autoCalls = {}
 local sessionAuto = 0
-local session = { calls = 0, unattributed = 0 }
+local session = { calls = 0, saved = 0, unattributed = 0 }
 
 function Engine.GetState() return state end
 function Engine.IsInWorld() return inWorld end
@@ -57,30 +59,20 @@ function Engine.LimitReason(request)
     if request.manual then
         return nil
     end
-    local limits = request.limits
-    local now = API.Now()
-    if sessionAuto >= limits.perSession then
+    if sessionAuto >= Engine.LIMIT_PER_SESSION then
         return "limit_session"
     end
-    if countSince(autoCalls, now - 3600) >= limits.perHour then
+    if countSince(autoCalls, API.Now() - 3600) >= Engine.LIMIT_PER_HOUR then
         return "limit_hour"
-    end
-    if request.journey and countSince(journeyCalls, now - 3600) >= limits.journeyPerHour then
-        return "limit_journey"
     end
     return nil
 end
 
 local function recordCall(request)
     session.calls = session.calls + 1
-    if request.manual then
-        return
-    end
-    local now = API.Now()
-    sessionAuto = sessionAuto + 1
-    autoCalls[#autoCalls + 1] = now
-    if request.journey then
-        journeyCalls[#journeyCalls + 1] = now
+    if not request.manual then
+        sessionAuto = sessionAuto + 1
+        autoCalls[#autoCalls + 1] = API.Now()
     end
 end
 
@@ -88,83 +80,44 @@ end
 -- Finishing
 ---------------------------------------------------------------------------
 local function finishRequest(request, result)
-    local entry = ns.Journal.Append(request, result)
-    if result.ok and result.ok > 0 and ns.character then
-        for _, key in ipairs(request.keys) do
-            ns.character.firstEvents[key] = true
-        end
+    local record
+    if result.status == "success" then
+        session.saved = session.saved + 1
+        record = ns.History.AddShot(request)
+    else
+        ns.Logger.Info(table.concat(request.types, "+") .. ": " .. result.status
+            .. (result.reason and (" (" .. result.reason .. ")") or ""))
     end
     for _, callback in ipairs(Engine.onComplete) do
-        ns.SafeCall("onComplete", callback, entry, request)
+        ns.SafeCall("onComplete", callback, record, request, result)
     end
-    return entry
 end
 
 local function skip(request, reason)
-    ns.Logger.Info("Skipped " .. table.concat(request.types, "+") .. ": " .. reason)
-    return finishRequest(request, { status = "skipped", skipReason = reason, ok = 0, failed = 0 })
+    finishRequest(request, { status = "skipped", reason = reason })
 end
 
-local function statusOf(a)
-    local attempted = a.ok + a.failed + a.unconfirmed
-    if attempted == 0 then
-        return "skipped"
-    elseif a.ok > 0 and a.failed == 0 and a.unconfirmed == 0 and not a.cancelReason then
-        return "success"
-    elseif a.ok > 0 then
-        return "partial"
-    elseif a.unconfirmed > 0 then
-        return "unconfirmed"
-    end
-    return "failed"
-end
-
-local complete -- forward declarations
-local nextFrame
-
-complete = function()
+local function complete(status, reason)
     local a = active
     active = nil
     token = token + 1
     state = "IDLE"
     ns.UIState.Restore()
-    local modes = ns.Util.SortedKeys(a.actualModes)
-    finishRequest(a.request, {
-        status = statusOf(a),
-        skipReason = a.cancelReason,
-        ok = a.ok,
-        failed = a.failed + a.unconfirmed,
-        modeActual = #modes > 0 and table.concat(modes, "+") or nil,
-    })
+    finishRequest(a.request, { status = status, reason = reason, mode = a.mode })
     Engine.Pump()
 end
 
-local function afterFrame()
-    local a = active
-    token = token + 1
-    state = "RESTORING"
-    ns.UIState.Restore()
-    local following = a.plan[a.index + 1]
-    if following and not a.cancelReason then
-        state = "INTERVAL"
-        local gap = following.cycle == a.plan[a.index].cycle and Engine.PAIR_GAP or a.request.interval
-        schedule(gap, nextFrame)
-    else
-        complete()
-    end
-end
-
 local function onTimeout()
-    local a = active
-    a.unconfirmed = a.unconfirmed + 1
-    a.cancelReason = "timeout"
     quarantineUntil = API.Now() + Engine.QUARANTINE
     ns.Logger.Warn("No screenshot result within " .. Engine.RESULT_TIMEOUT .. " s")
-    afterFrame()
+    complete("unconfirmed", "timeout")
 end
 
 local function capture()
     local a = active
+    if not inWorld then
+        return complete("skipped", "loading")
+    end
     state = "CAPTURING"
     schedule(Engine.RESULT_TIMEOUT, onTimeout)
     local ok, reason = API.TakeScreenshot()
@@ -177,49 +130,25 @@ local function capture()
     if ok then
         state = "WAIT_RESULT"
     else
-        a.failed = a.failed + 1
         ns.Logger.Error("Screenshot: " .. tostring(reason))
-        afterFrame()
+        complete("failed", "error")
     end
-end
-
-nextFrame = function()
-    local a = active
-    a.index = a.index + 1
-    local frame = a.plan[a.index]
-    if not frame or a.cancelReason then
-        return complete()
-    end
-    if not inWorld then
-        a.cancelReason = "loading"
-        return complete()
-    end
-    local limitReason = Engine.LimitReason(a.request)
-    if limitReason then
-        a.cancelReason = limitReason
-        return complete()
-    end
-    local mode = ns.Strategies.Resolve(frame, {
-        inCombat = API.InCombat(),
-        cleanAllowed = ns.db.settings.cleanAllowed,
-    })
-    if mode == "skip" then
-        return nextFrame()
-    end
-    state = "PREPARING"
-    a.frameMode = ns.UIState.Prepare(mode)
-    schedule(Engine.SETTLE, capture)
 end
 
 local function start(request)
     token = token + 1
-    active = {
-        request = request,
-        plan = ns.Strategies.Plan(request.mode, request.frames),
-        index = 0, ok = 0, failed = 0, unconfirmed = 0,
-        actualModes = {},
-    }
-    nextFrame()
+    active = { request = request }
+    if not inWorld then
+        return complete("skipped", "loading")
+    end
+    local limitReason = Engine.LimitReason(request)
+    if limitReason then
+        return complete("skipped", limitReason)
+    end
+    state = "PREPARING"
+    -- "clean" falls back to "normal" in combat (UIState decides).
+    active.mode = ns.UIState.Prepare(request.mode)
+    schedule(Engine.SETTLE, capture)
 end
 
 ---------------------------------------------------------------------------
@@ -276,23 +205,18 @@ local function pruneKeys(now)
     return count
 end
 
--- Entry point for every normalized event {type, key, character, zone,
--- mode?, frames?, delay?}. Returns true or false plus a reason.
+-- Entry point for every normalized event {type, key, info, character,
+-- zone}. Returns true or false plus a reason.
 function Engine.Submit(event)
-    if not ns.db then
+    if not ns.db or not event.character then
         return false, "not_loaded"
     end
     local now = API.Now()
-    local context = {
+    local request, reason = ns.Rules.Evaluate(event, ns.db.settings, {
         now = now,
-        paused = not ns.db.settings.enabled,
         lastByKey = lastByKey,
-        isFirst = function(key)
-            return not (ns.character and ns.character.firstEvents[key])
-        end,
         limitReason = Engine.LimitReason,
-    }
-    local request, reason = ns.Rules.Evaluate(event, ns.Profiles.Current(), context)
+    })
     if not request then
         ns.Logger.Info(event.type .. " ignored: " .. reason)
         return false, reason
@@ -326,12 +250,10 @@ local function onResult(event)
         return
     end
     if event == "SCREENSHOT_SUCCEEDED" then
-        a.ok = a.ok + 1
-        a.actualModes[a.frameMode] = true
+        complete("success")
     else
-        a.failed = a.failed + 1
+        complete("failed", "client")
     end
-    afterFrame()
 end
 
 -- If the client ever blocks one of our calls, say so in the log.
@@ -349,8 +271,8 @@ ns.On("SCREENSHOT_FAILED", onResult)
 
 -- Combat started while the UI was hidden: the frame becomes "normal".
 function Engine.OnUIRestoredByCombat()
-    if active and active.frameMode == "clean" then
-        active.frameMode = "normal"
+    if active and active.mode == "clean" then
+        active.mode = "normal"
     end
 end
 
@@ -358,8 +280,8 @@ local function cancelAuto(reason)
     for _, request in ipairs(ns.Queue.CancelAuto()) do
         skip(request, reason)
     end
-    if active and not active.request.manual then
-        active.cancelReason = reason
+    if active and not active.request.manual and state == "PREPARING" then
+        complete("skipped", reason)
     end
 end
 
@@ -372,12 +294,12 @@ ns.On("PLAYER_LEAVING_WORLD", function()
     inWorld = false
     cancelAuto("loading")
     if active then
-        active.cancelReason = active.cancelReason or "loading"
-        complete()
+        complete("skipped", "loading")
     end
 end)
 
 -- Pause / resume automatic capture. Manual shots keep working.
+-- The Step Tracker does not depend on this switch.
 function Engine.SetEnabled(enabled)
     ns.db.settings.enabled = enabled and true or false
     if not enabled then
@@ -387,62 +309,18 @@ function Engine.SetEnabled(enabled)
         ns.SafeCall("state listener", listener)
     end
 end
-Engine.stateListeners = {}
 
----------------------------------------------------------------------------
--- Manual shots (optional countdown timer)
----------------------------------------------------------------------------
+-- Manual shot: the chosen mode and the same safe pipeline.
 local manualCount = 0
-local countdownToken = 0
-local countdownActive = false
-
-function Engine.SubmitManual(options)
-    options = options or {}
+function Engine.ManualShot()
+    if not ns.characterKey then
+        return false, "not_loaded"
+    end
     manualCount = manualCount + 1
     return Engine.Submit({
         type = "MANUAL",
         key = "manual:" .. manualCount,
         character = ns.characterKey,
         zone = API.ZoneName(),
-        mode = options.mode,
-        frames = options.frames,
     })
-end
-
--- Starts the countdown from settings (0 = immediately).
-function Engine.ManualShot(options)
-    local seconds = (options and options.timer) or ns.db.settings.manualTimer
-    if seconds <= 0 then
-        return Engine.SubmitManual(options)
-    end
-    countdownToken = countdownToken + 1
-    countdownActive = true
-    local myToken = countdownToken
-    for remaining = seconds, 1, -1 do
-        API.After(seconds - remaining, function()
-            if myToken == countdownToken then
-                API.Print(remaining .. "...")
-            end
-        end)
-    end
-    API.After(seconds, function()
-        if myToken == countdownToken then
-            countdownActive = false
-            Engine.SubmitManual(options)
-        end
-    end)
-    return true
-end
-
-function Engine.IsCountingDown()
-    return countdownActive
-end
-
-function Engine.CancelCountdown()
-    if not countdownActive then
-        return false
-    end
-    countdownToken = countdownToken + 1
-    countdownActive = false
-    return true
 end

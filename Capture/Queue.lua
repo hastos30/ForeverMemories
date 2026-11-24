@@ -14,7 +14,7 @@ local sequence = 0
 
 local function compatible(a, b)
     return not a.manual and not b.manual
-        and a.mode == b.mode and a.journey == b.journey
+        and a.mode == b.mode and a.character == b.character
         and math.abs(a.createdAt - b.createdAt) <= Queue.MERGE_WINDOW
 end
 
@@ -25,10 +25,10 @@ local function merge(target, incoming)
         if not ns.Util.Contains(target.types, kind) then
             target.types[#target.types + 1] = kind
             target.keys[#target.keys + 1] = incoming.keys[i]
+            target.infos[#target.infos + 1] = incoming.infos[i]
         end
     end
     target.priority = math.min(target.priority, incoming.priority)
-    target.frames = math.max(target.frames, incoming.frames)
     target.dueAt = math.min(target.dueAt, incoming.dueAt)
 end
 

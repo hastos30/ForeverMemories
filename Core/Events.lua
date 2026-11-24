@@ -1,8 +1,10 @@
 -- Core/Events.lua
 -- Turns client events into normalized events
---   { type, key, ts, character, zone, payload }
+--   { type, key, info, character, zone }
 -- and hands them to the Engine. Only events the client accepts are
--- registered; a trigger whose event is rejected is marked unavailable.
+-- registered; a trigger whose event is rejected is marked unavailable
+-- and shown greyed out with the reason. Nothing is guessed: an event that
+-- cannot be told apart reliably is not captured (spec 5.3).
 local _, ns = ...
 
 local Events = {}
@@ -10,23 +12,24 @@ ns.Events = Events
 
 local API = ns.API
 
-local function emit(kind, key, payload)
+local function emit(kind, key, info)
     if not ns.characterKey then
         return
     end
     ns.Engine.Submit({
         type = kind,
         key = key,
-        ts = API.Now(),
+        info = info,
         character = ns.characterKey,
         zone = API.ZoneName(),
-        payload = payload,
     })
 end
 Events.Emit = emit
 
 ---------------------------------------------------------------------------
--- Loot: own epic/legendary items from CHAT_MSG_LOOT.
+-- Items: own rare / epic / legendary items from CHAT_MSG_LOOT. The client
+-- writes this line only when the item is received (loot, quest reward,
+-- purchase), never when it is moved between bag slots.
 ---------------------------------------------------------------------------
 local lootPatterns
 
@@ -59,22 +62,24 @@ function Events.OwnLootLink(text)
     return nil
 end
 
+local LOOT_BY_QUALITY = { [3] = "LOOT_RARE", [4] = "LOOT_EPIC", [5] = "LOOT_LEGENDARY" }
+
+-- One item = one event of exactly one quality, so they never duplicate.
 local function onLoot(_, text)
     local link = Events.OwnLootLink(text)
     if not link then
         return
     end
-    local quality = API.ItemQuality(link)
-    local itemID = string.match(link, "item:(%d+)") or link
-    if quality == 5 then
-        emit("LOOT_LEGENDARY", "loot:" .. itemID, { link = link })
-    elseif quality == 4 then
-        emit("LOOT_EPIC", "loot:" .. itemID, { link = link })
+    local kind = LOOT_BY_QUALITY[API.ItemQuality(link)]
+    if kind then
+        local itemID = string.match(link, "item:(%d+)") or link
+        emit(kind, "loot:" .. itemID, link)
     end
 end
 
 ---------------------------------------------------------------------------
 -- Duel: "%1$s has defeated %2$s in a duel" style system messages.
+-- Only a win of the current character counts.
 ---------------------------------------------------------------------------
 local duelPatterns
 
@@ -101,8 +106,9 @@ end
 
 local function onSystemMessage(_, text)
     local winner, loser = Events.DuelWinner(text)
-    if winner and winner == API.PlayerName() then
-        emit("DUEL", "duel:" .. tostring(loser), nil)
+    local me = API.PlayerName()
+    if winner and me and winner == me then
+        emit("DUEL", "duel:" .. tostring(loser), loser)
     end
 end
 
@@ -121,125 +127,106 @@ function Events.CheckZone()
         character.zonesSeeded = true
         return
     end
-    emit("ZONE", key, { zone = API.ZoneName() })
+    emit("ZONE", key, nil)
+end
+
+---------------------------------------------------------------------------
+-- Guild: a real join, never a login. The client may report "no guild"
+-- for a moment after login, so the saved state is not changed to
+-- "no guild" during the first GUILD_GRACE seconds, and a join is only
+-- recognised against a known earlier state.
+---------------------------------------------------------------------------
+Events.GUILD_GRACE = 30
+local loginAt = 0
+
+function Events.CheckGuild()
+    local character = ns.character
+    if not character then
+        return
+    end
+    local name = API.IsInGuild() and API.GuildName() or nil
+    local graceOver = API.Now() - loginAt >= Events.GUILD_GRACE
+    if name then
+        local before = character.guild
+        character.guild = name
+        if before == false then
+            emit("GUILD", "guild:" .. name, name)
+        end
+    elseif graceOver and not API.IsInGuild() then
+        character.guild = false
+    end
 end
 
 ---------------------------------------------------------------------------
 -- Trigger definitions: client events and handlers.
 ---------------------------------------------------------------------------
-local wasInGuild
 local DEFINITIONS = {
     LEVEL = {
         events = { "PLAYER_LEVEL_UP" },
+        -- Every level, the maximum one too (it is not a separate event).
         handler = function(_, level)
-            local maxLevel = API.MaxLevel()
-            if type(level) ~= "number" or API.IsSecret(level) then
+            if not API.IsPlainNumber(level) then
                 return
             end
-            -- MAX_LEVEL replaces LEVEL for the same level-up.
-            if type(maxLevel) == "number" and level >= maxLevel then
-                emit("MAX_LEVEL", "level:" .. level)
-            else
-                emit("LEVEL", "level:" .. level)
+            emit("LEVEL", "level:" .. level, level)
+        end,
+    },
+    DEATH = {
+        events = { "PLAYER_DEAD" },
+        handler = function() emit("DEATH", "death", nil) end,
+    },
+    BOSS = {
+        events = { "ENCOUNTER_END" },
+        -- Only a successful encounter inside a dungeon or a raid.
+        handler = function(_, encounterID, encounterName, difficultyID, _, success)
+            if API.IsSecret(success) or API.IsSecret(encounterID) then
+                return
+            end
+            local where = API.InstanceType()
+            if (success == 1 or success == true) and (where == "party" or where == "raid") then
+                local name = type(encounterName) == "string" and not API.IsSecret(encounterName)
+                    and encounterName or nil
+                emit("BOSS", "boss:" .. tostring(encounterID) .. ":" .. tostring(difficultyID), name)
             end
         end,
     },
-    MAX_LEVEL = { events = { "PLAYER_LEVEL_UP" }, sharesWith = "LEVEL" },
+    DUEL = { events = { "CHAT_MSG_SYSTEM" }, handler = onSystemMessage },
+    LOOT_RARE = { events = { "CHAT_MSG_LOOT" }, handler = onLoot },
+    LOOT_EPIC = { events = { "CHAT_MSG_LOOT" }, sharesWith = "LOOT_RARE" },
+    LOOT_LEGENDARY = { events = { "CHAT_MSG_LOOT" }, sharesWith = "LOOT_RARE" },
     ZONE = {
         events = { "ZONE_CHANGED_NEW_AREA" },
         handler = function() Events.CheckZone() end,
     },
-    BOSS = {
-        events = { "ENCOUNTER_END" },
-        handler = function(_, encounterID, _, difficultyID, _, success)
-            if API.IsSecret(success) or API.IsSecret(encounterID) then
-                return
-            end
-            if success == 1 or success == true then
-                emit("BOSS", "boss:" .. tostring(encounterID) .. ":" .. tostring(difficultyID))
-            end
-        end,
-    },
-    LOOT_EPIC = { events = { "CHAT_MSG_LOOT" }, handler = onLoot },
-    LOOT_LEGENDARY = { events = { "CHAT_MSG_LOOT" }, sharesWith = "LOOT_EPIC" },
-    MOUNT = {
-        events = { "NEW_MOUNT_ADDED" },
-        handler = function(_, mountID)
-            emit("MOUNT", "mount:" .. tostring(mountID))
-        end,
-    },
-    DUNGEON = {
-        events = { "LFG_COMPLETION_REWARD" },
-        handler = function()
-            emit("DUNGEON", "dungeon:" .. tostring(API.InstanceName()))
-        end,
-    },
-    DUEL = { events = { "CHAT_MSG_SYSTEM" }, handler = onSystemMessage },
-    DEATH = {
-        events = { "PLAYER_DEAD" },
-        handler = function() emit("DEATH", "death") end,
-    },
-    QUEST = {
-        events = { "QUEST_TURNED_IN" },
-        handler = function(_, questID)
-            if ns.character and questID and ns.character.quests[questID] then
-                emit("QUEST", "quest:" .. questID)
-            end
-        end,
-    },
     GUILD = {
         events = { "PLAYER_GUILD_UPDATE" },
-        handler = function()
-            local inGuild = API.IsInGuild()
-            if inGuild and wasInGuild == false then
-                emit("GUILD", "guild:" .. tostring(API.GuildName()))
-            end
-            wasInGuild = inGuild
-        end,
-    },
-    FORM = {
-        events = { "UPDATE_SHAPESHIFT_FORMS" },
-        handler = function()
-            local character = ns.character
-            if not character or API.PlayerClass() ~= "DRUID" then
-                return
-            end
-            local count = API.NumShapeshiftForms()
-            local known = character.forms
-            character.forms = math.max(count, known or 0)
-            if known and count > known then
-                emit("FORM", "form:" .. count)
-            end
-        end,
+        handler = function() Events.CheckGuild() end,
     },
 }
 
--- Registers every supported trigger. Called once at login.
+-- Registers every trigger. Called once at login.
 function Events.Init()
-    wasInGuild = API.IsInGuild()
-    if ns.character and API.PlayerClass() == "DRUID" and not ns.character.forms then
-        ns.character.forms = API.NumShapeshiftForms()
-    end
+    loginAt = API.Now()
     local registered = {}
-    for _, trigger in ipairs(ns.Registry.TRIGGERS) do
-        local def = DEFINITIONS[trigger.id]
-        if def and not trigger.unsupported then
-            local ok, reason = true, nil
-            for _, event in ipairs(def.events) do
-                if registered[event] == nil then
-                    local handler = def.handler or DEFINITIONS[def.sharesWith].handler
-                    local okEvent, why = ns.On(event, handler)
-                    registered[event] = okEvent and true or (why or "rejected")
-                end
-                if registered[event] ~= true then
-                    ok, reason = false, event .. ": " .. tostring(registered[event])
-                end
+    for _, id in ipairs(ns.Registry.EVENTS) do
+        local def = DEFINITIONS[id]
+        local ok, reason = true, nil
+        for _, event in ipairs(def.events) do
+            if registered[event] == nil then
+                local handler = def.handler or DEFINITIONS[def.sharesWith].handler
+                local okEvent, why = ns.On(event, handler)
+                registered[event] = okEvent and true or (why or "rejected")
             end
-            ns.Registry.SetStatus(trigger.id, ok, reason)
+            if registered[event] ~= true then
+                ok, reason = false, event .. ": " .. tostring(registered[event])
+            end
         end
+        ns.Registry.SetStatus(id, ok, reason)
     end
-    ns.Profiles.Invalidate()
     Events.CheckZone()
+    -- A later check settles "no guild" once the grace period is over.
+    API.After(Events.GUILD_GRACE + 1, function() ns.SafeCall("guild", Events.CheckGuild) end)
+    Events.CheckGuild()
 end
 
 table.insert(ns.onLogin, Events.Init)

@@ -2,7 +2,8 @@
 -- The only place that touches World of Warcraft client functions directly.
 -- Every wrapper checks that the client function exists and returns a value,
 -- or nil plus a reason string. Forever may differ from Retail, so nothing
--- here assumes a function is present.
+-- here assumes a function is present, and no secret value is ever used in
+-- arithmetic or comparisons (that would be a Lua error in 12.x clients).
 local _, ns = ...
 
 local API = {}
@@ -36,11 +37,17 @@ local function call(name, ...)
     return fn(...)
 end
 
--- True when the value is a Midnight-style secret value we must not read.
+-- True when the value is a secret value we must not read.
 function API.IsSecret(value)
     local check = API.Resolve("issecretvalue")
     return check ~= nil and check(value) and true or false
 end
+
+-- A plain, readable number (not nil, not secret, not NaN).
+local function plainNumber(value)
+    return type(value) == "number" and not API.IsSecret(value) and value == value
+end
+API.IsPlainNumber = plainNumber
 
 function API.GetBuild()
     if not isFunction(GetBuildInfo) then
@@ -119,36 +126,57 @@ function API.InCombat()
     return InCombatLockdown() and true or false
 end
 
-function API.IsAFK()
-    return call("UnitIsAFK", "player") and true or false
-end
-
 function API.PlayerLevel()
     return call("UnitLevel", "player")
 end
 
-function API.MaxLevel()
-    return call("GetMaxPlayerLevel")
-end
-
 function API.PlayerName()
-    return (call("UnitName", "player"))
+    local name = call("UnitName", "player")
+    if type(name) ~= "string" or API.IsSecret(name) then
+        return nil
+    end
+    return name
 end
 
+-- Class file name ("DRUID") or nil.
 function API.PlayerClass()
     local _, classFile = call("UnitClass", "player")
+    if type(classFile) ~= "string" or API.IsSecret(classFile) then
+        return nil
+    end
     return classFile
 end
 
+function API.RealmName()
+    local realm = call("GetRealmName")
+    if type(realm) ~= "string" or API.IsSecret(realm) then
+        return nil
+    end
+    return realm
+end
+
+-- Player GUID as a plain string, or nil (missing or secret).
+function API.PlayerGUID()
+    local guid = call("UnitGUID", "player")
+    if type(guid) ~= "string" or API.IsSecret(guid) or guid == "" then
+        return nil
+    end
+    return guid
+end
+
+-- Storage key of the current character: "Realm:Name".
+-- Why not the GUID: see API_COMPATIBILITY.md ("Идентификация персонажа").
 function API.CharacterKey()
-    local name = API.PlayerName() or "?"
-    local realm = call("GetRealmName") or "?"
+    local name, realm = API.PlayerName(), API.RealmName()
+    if not name or not realm then
+        return nil
+    end
     return realm .. ":" .. name
 end
 
 function API.ZoneName()
     local zone = call("GetRealZoneText")
-    if type(zone) ~= "string" or zone == "" then
+    if type(zone) ~= "string" or zone == "" or API.IsSecret(zone) then
         return nil
     end
     return zone
@@ -158,7 +186,7 @@ end
 -- the zone map. Returns nil if the client cannot tell.
 function API.ZoneMapID()
     local mapID = call("C_Map.GetBestMapForUnit", "player")
-    if type(mapID) ~= "number" then
+    if not plainNumber(mapID) then
         return nil
     end
     local getInfo = API.Resolve("C_Map.GetMapInfo")
@@ -184,41 +212,26 @@ function API.ZoneKey()
     return name and ("zone:" .. name) or nil
 end
 
--- Player position on the current map (0..1), or nil (e.g. in instances).
-function API.PlayerPosition()
-    local mapID = call("C_Map.GetBestMapForUnit", "player")
-    if type(mapID) ~= "number" then
+-- "none", "party", "raid", "pvp", "arena", "scenario" or nil.
+function API.InstanceType()
+    local _, instanceType = call("IsInInstance")
+    if type(instanceType) ~= "string" or API.IsSecret(instanceType) then
         return nil
     end
-    local position = call("C_Map.GetPlayerMapPosition", mapID, "player")
-    if type(position) ~= "table" or not position.GetXY then
-        return nil
-    end
-    local x, y = position:GetXY()
-    if type(x) ~= "number" or type(y) ~= "number" or API.IsSecret(x) then
-        return nil
-    end
-    return mapID, x, y
-end
-
-function API.InInstance()
-    return call("IsInInstance") and true or false
-end
-
-function API.InstanceName()
-    return (call("GetInstanceInfo"))
+    return instanceType
 end
 
 function API.IsInGuild()
     return call("IsInGuild") and true or false
 end
 
+-- Guild name or nil (not in a guild, or the client has not loaded it yet).
 function API.GuildName()
-    return (call("GetGuildInfo", "player"))
-end
-
-function API.NumShapeshiftForms()
-    return call("GetNumShapeshiftForms") or 0
+    local name = call("GetGuildInfo", "player")
+    if type(name) ~= "string" or name == "" or API.IsSecret(name) then
+        return nil
+    end
+    return name
 end
 
 function API.GetLocale()
@@ -230,7 +243,7 @@ function API.ItemQuality(link)
     local byID = API.Resolve("C_Item.GetItemQualityByID")
     if byID then
         local ok, quality = pcall(byID, link)
-        if ok and type(quality) == "number" then
+        if ok and plainNumber(quality) then
             return quality
         end
     end
@@ -240,20 +253,94 @@ function API.ItemQuality(link)
         return tonumber(iq)
     end
     local color = string.match(link, "|c(%x%x%x%x%x%x%x%x)")
-    local byColor = { ffa335ee = 4, ffff8000 = 5 }
+    local byColor = { ff0070dd = 3, ffa335ee = 4, ffff8000 = 5 }
     return color and byColor[string.lower(color)] or nil
 end
 
--- True while a full-screen panel is open (map, game menu, settings).
-function API.IsBlockingPanelOpen()
-    local names = { "WorldMapFrame", "GameMenuFrame", "SettingsPanel" }
-    for _, name in ipairs(names) do
-        local frame = _G[name]
-        if type(frame) == "table" and frame.IsShown and frame:IsShown() then
-            return true
+---------------------------------------------------------------------------
+-- Movement (Step Tracker). All distances are in yards, the unit of
+-- UnitPosition and GetUnitSpeed (warcraft.wiki.gg, 2026-11-24).
+---------------------------------------------------------------------------
+
+-- Own movement speed (yards per second), or nil when unknown or secret.
+-- On a boat or a zeppelin this is the player's own speed, not the boat's.
+function API.UnitSpeed()
+    local current = call("GetUnitSpeed", "player")
+    if not plainNumber(current) then
+        return nil
+    end
+    return current
+end
+
+-- Movement that must never count as steps. Returns a reason or nil.
+-- `known` is false when a needed client function is missing: then the
+-- state cannot be excluded reliably and nothing is counted.
+function API.MovementExclusion()
+    local checks = {
+        { "UnitOnTaxi", "taxi", "player" },
+        { "UnitInVehicle", "vehicle", "player" },
+        { "IsFlying", "flying" },
+        { "IsSwimming", "swimming" },
+    }
+    for _, check in ipairs(checks) do
+        local fn = API.Resolve(check[1])
+        if not fn then
+            return "missing:" .. check[1]
+        end
+        local value = fn(check[3])
+        if API.IsSecret(value) then
+            return "secret:" .. check[1]
+        end
+        if value then
+            return check[2]
         end
     end
-    return false
+    return nil
+end
+
+-- World position in yards with the id of its coordinate space, or nil.
+-- Two positions can be compared only if their `space` is equal.
+--   1) UnitPosition: instance coordinates (nil inside instances).
+--   2) Map position converted to continent coordinates.
+function API.WorldPosition()
+    local y, x, _, instanceID = call("UnitPosition", "player")
+    if plainNumber(x) and plainNumber(y) and plainNumber(instanceID) then
+        return "i" .. instanceID, x, y, "UnitPosition"
+    end
+    local mapID = call("C_Map.GetBestMapForUnit", "player")
+    if not plainNumber(mapID) then
+        return nil
+    end
+    local position = call("C_Map.GetPlayerMapPosition", mapID, "player")
+    if type(position) ~= "table" or not position.GetXY then
+        return nil
+    end
+    local toWorld = API.Resolve("C_Map.GetWorldPosFromMapPos")
+    if not toWorld then
+        return nil
+    end
+    local ok, continentID, world = pcall(toWorld, mapID, position)
+    if not ok or not plainNumber(continentID) or type(world) ~= "table" or not world.GetXY then
+        return nil
+    end
+    local wx, wy = world:GetXY()
+    if not plainNumber(wx) or not plainNumber(wy) then
+        return nil
+    end
+    return "c" .. continentID, wx, wy, "MapPosition"
+end
+
+---------------------------------------------------------------------------
+-- Interface helpers
+---------------------------------------------------------------------------
+
+-- Texture and coordinates of the class icon, or nil.
+function API.ClassIcon(classFile)
+    local coords = type(CLASS_ICON_TCOORDS) == "table" and classFile and CLASS_ICON_TCOORDS[classFile]
+    if type(coords) ~= "table" then
+        return nil
+    end
+    return "Interface\\TargetingFrame\\UI-Classes-Circles", coords
 end
 
 function API.PlaySuccessSound()
@@ -263,8 +350,6 @@ function API.PlaySuccessSound()
 end
 
 -- Reloads the interface; the client writes SavedVariables first.
--- Not yet verified in Forever: ReloadUI() called from addon code (a click in
--- a confirmation dialog). The /reload command itself works (v0.0.1, S7).
 function API.ReloadUI()
     local reload = API.Resolve("ReloadUI")
     if not reload then

@@ -59,6 +59,57 @@ function Util.AddUnique(list, value)
     end
 end
 
+-- Calendar day of a Unix time in the computer's local time: "2026-11-24".
+function Util.DayKey(t)
+    return date("%Y-%m-%d", t)
+end
+
+-- Unix time of local midnight for a day key, or nil for a bad key.
+function Util.DayStart(key)
+    local y, m, d = string.match(tostring(key), "^(%d%d%d%d)%-(%d%d)%-(%d%d)$")
+    if not y then
+        return nil
+    end
+    return time({ year = tonumber(y), month = tonumber(m), day = tonumber(d), hour = 0 })
+end
+
+-- Day key `offset` days before `key` (noon avoids daylight-saving edges).
+function Util.DayBefore(key, offset)
+    local start = Util.DayStart(key)
+    local d = date("*t", start)
+    d.day, d.hour = d.day - offset, 12
+    return Util.DayKey(time(d))
+end
+
+-- Whole number with a thousands separator: 1245872 -> "1 245 872".
+-- Fractions are cut, not rounded: 0.9 steps is still 0 steps.
+function Util.FormatNumber(value, separator)
+    local n = math.floor(tonumber(value) or 0)
+    local text = tostring(math.abs(n))
+    local result = string.gsub(string.reverse(text), "(%d%d%d)", "%1" .. string.reverse(separator or " "))
+    result = string.reverse(result)
+    if string.sub(result, 1, #(separator or " ")) == (separator or " ") then
+        result = string.sub(result, #(separator or " ") + 1)
+    end
+    return (n < 0 and "-" or "") .. result
+end
+
+-- Plural form for a count: "one", "few" or "many" (Russian rules) or
+-- "one" / "many" for English.
+function Util.PluralForm(n, locale)
+    n = math.floor(math.abs(tonumber(n) or 0))
+    if locale == "ruRU" then
+        local mod10, mod100 = n % 10, n % 100
+        if mod10 == 1 and mod100 ~= 11 then
+            return "one"
+        elseif mod10 >= 2 and mod10 <= 4 and (mod100 < 12 or mod100 > 14) then
+            return "few"
+        end
+        return "many"
+    end
+    return n == 1 and "one" or "many"
+end
+
 function Util.SortedKeys(map)
     local keys = {}
     for key in pairs(map) do
