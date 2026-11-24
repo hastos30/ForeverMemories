@@ -88,6 +88,8 @@ ns.locales.ruRU = {
 
     -- Настройки
     LANGUAGE = "Язык", LANG_AUTO = "Язык игры", LANGUAGE_RELOAD = "Язык сменится после /reload.",
+    CONFIRM_RELOAD_LANGUAGE = "Язык сохранён. Перезагрузить интерфейс сейчас, чтобы применить его?",
+    RELOAD_NOW = "Перезагрузить", LATER = "Позже", RELOAD_MANUALLY = "Не удалось перезагрузить интерфейс. Введите /reload.",
     SHOW_MINIMAP = "Кнопка у миникарты", NOTIFICATIONS = "Уведомления", SOUND = "Звук",
     NOTIFY_DURATION = "Время уведомления", WINDOW_SCALE = "Масштаб окна", RESET_POSITION = "Сбросить позицию окна",
 

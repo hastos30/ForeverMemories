@@ -1,6 +1,6 @@
 -- UI/Widgets.lua
 -- Small building blocks for the window: text, buttons, checkboxes,
--- "- value +" steppers and click-to-cycle selectors.
+-- "- value +" steppers and dropdown lists.
 -- Every input widget has :Refresh() that re-reads its value.
 -- Only long-standing templates are used (UIPanelButtonTemplate,
 -- UICheckButtonTemplate, InputBoxTemplate, BackdropTemplate).
@@ -112,46 +112,159 @@ function W.Stepper(parent, label, spec, get, set, suffix)
     return row
 end
 
--- Row: "label   [current option]" - click to switch to the next option.
+---------------------------------------------------------------------------
+-- Dropdown: "label   [current option]". A click opens a list of all
+-- options under the button; a click on an option selects it.
+-- One shared list frame serves every dropdown, so only one list is open.
+-- Built from plain frames on purpose: UIDropDownMenu and the newer Menu
+-- API differ between client versions and are not confirmed in Forever.
+---------------------------------------------------------------------------
+local LIST_ROW_HEIGHT = 18
+local LIST_MAX_ROWS = 15 -- longer lists wrap into the next column
+
+local list -- created on first use
+
+local function closeList()
+    if list then
+        list:Hide() -- OnHide also hides the click catcher
+    end
+end
+W.CloseDropdown = closeList
+
+local function createList()
+    -- Invisible full-screen button under the list: a click outside closes it.
+    local catcher = CreateFrame("Button", nil, UIParent)
+    catcher:SetAllPoints(UIParent)
+    catcher:SetFrameStrata("FULLSCREEN")
+    catcher:SetScript("OnClick", closeList)
+    catcher:Hide()
+
+    list = CreateFrame("Frame", "ForeverMemoriesDropdownList", UIParent, "BackdropTemplate")
+    list:SetFrameStrata("FULLSCREEN_DIALOG")
+    list:SetClampedToScreen(true)
+    list:EnableMouse(true)
+    W.Backdrop(list, W.COLORS.background, 0.97)
+    list.rows = {}
+    list.catcher = catcher
+    list:SetScript("OnHide", function(self)
+        self.owner = nil
+        self.catcher:Hide()
+    end)
+    list:Hide()
+    if type(UISpecialFrames) == "table" then
+        table.insert(UISpecialFrames, "ForeverMemoriesDropdownList") -- Esc closes
+    end
+    return list
+end
+
+local function listRow(i)
+    if list.rows[i] then
+        return list.rows[i]
+    end
+    local row = CreateFrame("Button", nil, list)
+    row:SetHeight(LIST_ROW_HEIGHT)
+    local highlight = row:CreateTexture(nil, "HIGHLIGHT") -- shown on mouse over
+    highlight:SetAllPoints()
+    local g = W.COLORS.gold
+    highlight:SetColorTexture(g[1], g[2], g[3], 0.25)
+    row.text = W.Text(row, "")
+    row.text:SetPoint("LEFT", row, "LEFT", 6, 0)
+    row.text:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+    row:SetScript("OnClick", function(self)
+        local owner = list.owner
+        closeList()
+        if owner then
+            owner:Choose(self.value)
+        end
+    end)
+    list.rows[i] = row
+    return row
+end
+
+-- Shows the options under the owner button; a second click closes them.
+local function openList(owner, options, current)
+    list = list or createList()
+    if list:IsShown() and list.owner == owner then
+        return closeList()
+    end
+    local width = owner:GetWidth()
+    local columns = math.ceil(#options / LIST_MAX_ROWS)
+    local perColumn = math.ceil(#options / columns)
+    for i, option in ipairs(options) do
+        local row = listRow(i)
+        local column, line = math.floor((i - 1) / perColumn), (i - 1) % perColumn
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", list, "TOPLEFT", 4 + column * width, -4 - line * LIST_ROW_HEIGHT)
+        row:SetWidth(width)
+        row.value = option.value
+        row.text:SetText(option.text)
+        local c = option.value == current and W.COLORS.active or W.COLORS.text
+        row.text:SetTextColor(c[1], c[2], c[3])
+        row:Show()
+    end
+    for i = #options + 1, #list.rows do
+        list.rows[i]:Hide()
+    end
+    list:SetSize(columns * width + 8, perColumn * LIST_ROW_HEIGHT + 8)
+    -- Same size as the window the button is in (the window has its own scale).
+    list:SetScale(owner:GetEffectiveScale() / UIParent:GetEffectiveScale())
+    list:ClearAllPoints()
+    list:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, -2)
+    list.owner = owner
+    list:Show()
+    list.catcher:Show()
+end
+
 -- options: list of { value = ..., text = ... } or a function returning it.
-function W.Cycle(parent, label, options, get, set, width)
+-- set(value) is called only when the player picks a different value.
+function W.Dropdown(parent, label, options, get, set, width)
     local row = CreateFrame("Frame", nil, parent)
     row:SetSize(300, 24)
     row.label = W.Text(row, label)
     row.label:SetPoint("LEFT")
     row.label:SetWidth(170)
-    local button = W.Button(row, "", width or 120)
+
+    local function optionList()
+        return type(options) == "function" and options() or options
+    end
+    local button = W.Button(row, "", width or 120, function(self)
+        local opts = optionList()
+        if #opts > 0 then
+            openList(self, opts, get())
+        end
+    end)
     button:SetPoint("LEFT", row, "LEFT", 172, 0)
     row.button = button
 
-    local function list()
-        return type(options) == "function" and options() or options
+    function button:Choose(value)
+        if value ~= get() then
+            ns.SafeCall("dropdown", set, value)
+        end
+        if parent.Refresh then parent:Refresh() else row:Refresh() end
     end
-    local function indexOf(value)
-        for i, option in ipairs(list()) do
-            if option.value == value then
-                return i
+    -- Window closed or tab switched: the list must not stay on screen.
+    button:SetScript("OnHide", function(self)
+        if list and list.owner == self then
+            closeList()
+        end
+    end)
+
+    function row:Refresh()
+        local current = get()
+        local text = tostring(current)
+        for _, option in ipairs(optionList()) do
+            if option.value == current then
+                text = option.text
+                break
             end
         end
-        return 0
-    end
-    button:SetScript("OnClick", function(_, mouseButton)
-        local opts = list()
-        if #opts == 0 then return end
-        local step = mouseButton == "RightButton" and -1 or 1
-        local nextIndex = (indexOf(get()) - 1 + step) % #opts + 1
-        ns.SafeCall("cycle", set, opts[nextIndex].value)
-        if parent.Refresh then parent:Refresh() else row:Refresh() end
-    end)
-    if button.RegisterForClicks then
-        button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    end
-    function row:Refresh()
-        local option = list()[indexOf(get())]
-        button:SetText(option and option.text or tostring(get()))
+        button:SetText(text)
     end
     function row:SetEnabled(enabled)
         button:SetEnabled(enabled)
+        if not enabled and list and list.owner == button then
+            closeList()
+        end
     end
     return row
 end

@@ -32,13 +32,13 @@ local function build()
 
     local rule = function() return ns.Profiles.Current().rules.MANUAL end
     local column = W.Column(panel, 10, 30)
-    column:Add(W.Cycle(panel, L.FIELD_MODE, {
+    column:Add(W.Dropdown(panel, L.FIELD_MODE, {
             { value = "normal", text = L.MODE_normal }, { value = "clean", text = L.MODE_clean },
             { value = "dual", text = L.MODE_dual },
         },
         function() return options.mode or rule().mode end,
         function(value) options.mode = value end))
-    column:Add(W.Cycle(panel, L.MANUAL_TIMER, {
+    column:Add(W.Dropdown(panel, L.MANUAL_TIMER, {
             { value = 0, text = L.TIMER_OFF }, { value = 3, text = "3 s" },
             { value = 5, text = "5 s" }, { value = 10, text = "10 s" },
         },

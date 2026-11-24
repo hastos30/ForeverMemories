@@ -25,7 +25,7 @@ end
 UI.builders.capture = function(parent)
     local column = W.Column(parent, 16, 16)
     column:Add(W.Heading(parent, L.MANUAL_SHOT), 26)
-    column:Add(W.Cycle(parent, L.FIELD_MODE, {
+    column:Add(W.Dropdown(parent, L.FIELD_MODE, {
             { value = "normal", text = L.MODE_normal },
             { value = "clean", text = L.MODE_clean },
             { value = "dual", text = L.MODE_dual },
@@ -35,7 +35,7 @@ UI.builders.capture = function(parent)
     column:Add(W.Stepper(parent, L.FIELD_FRAMES, ns.Registry.FIELDS.frames,
         function() return current().rules.MANUAL.frames end,
         function(value) ns.Profiles.SetRule("MANUAL", "frames", value) end))
-    column:Add(W.Cycle(parent, L.MANUAL_TIMER, {
+    column:Add(W.Dropdown(parent, L.MANUAL_TIMER, {
             { value = 0, text = L.TIMER_OFF }, { value = 3, text = "3 s" },
             { value = 5, text = "5 s" }, { value = 10, text = "10 s" },
         },
@@ -97,11 +97,11 @@ end
 ---------------------------------------------------------------------------
 -- Profiles
 ---------------------------------------------------------------------------
-local function confirm(text, onAccept)
+local function confirm(text, onAccept, acceptText, cancelText)
     StaticPopupDialogs.FOREVERMEMORIES_CONFIRM = {
         text = text,
-        button1 = YES or "Yes",
-        button2 = NO or "No",
+        button1 = acceptText or YES or "Yes",
+        button2 = cancelText or NO or "No",
         OnAccept = function() ns.SafeCall("confirm", onAccept) end,
         timeout = 0,
         whileDead = true,
@@ -110,6 +110,18 @@ local function confirm(text, onAccept)
     StaticPopup_Show("FOREVERMEMORIES_CONFIRM")
 end
 UI.Confirm = confirm
+
+-- Asks before reloading the interface. The setting is already saved:
+-- "Later" keeps it, and it applies at the next /reload or login.
+function UI.ConfirmReload(text)
+    confirm(text, function()
+        local ok, reason = ns.API.ReloadUI()
+        if not ok then
+            ns.Logger.Warn("ReloadUI failed: " .. tostring(reason))
+            ns.API.Print(L.RELOAD_MANUALLY)
+        end
+    end, L.RELOAD_NOW, L.LATER)
+end
 
 UI.builders.profiles = function(parent)
     local selected = ns.Profiles.ActiveName()
@@ -201,12 +213,19 @@ end
 ---------------------------------------------------------------------------
 UI.builders.settings = function(parent)
     local column = W.Column(parent, 16, 16)
-    column:Add(W.Cycle(parent, L.LANGUAGE, {
+    column:Add(W.Dropdown(parent, L.LANGUAGE, {
             { value = "auto", text = L.LANG_AUTO }, { value = "ruRU", text = "Русский" },
             { value = "enUS", text = "English" },
         },
         function() return ns.db.settings.locale end,
-        function(value) ns.db.settings.locale = value end))
+        function(value)
+            ns.db.settings.locale = value -- saved in ForeverMemoriesDB at once
+            -- Ask for a reload only if the visible language really changes
+            -- (e.g. "Game language" -> "English" on an English client does not).
+            if ns.ResolveLocale(value) ~= ns.activeLocale then
+                UI.ConfirmReload(L.CONFIRM_RELOAD_LANGUAGE)
+            end
+        end))
     local reloadNote = column:Add(W.Text(parent, L.LANGUAGE_RELOAD, "GameFontHighlightSmall"), 20, 4)
     reloadNote:SetWidth(560)
     column:Add(settingCheck(parent, L.SHOW_MINIMAP, "minimap", function() ns.Minimap.Update() end))

@@ -3,7 +3,7 @@
 local addonName, ns = ...
 
 ns.name = addonName
-ns.version = "0.4.0-beta"
+ns.version = "0.4.1-beta"
 
 -- Our own frames (window, panels). They are hidden while a screenshot is
 -- taken so they never appear in a memory.
@@ -62,11 +62,17 @@ ns.L = setmetatable({}, {
     end,
 })
 
-function ns.SetLocale(code)
+-- Locale table for a setting value ("auto" = the game client language).
+function ns.ResolveLocale(code)
     if code == nil or code == "auto" then
         code = ns.API.GetLocale()
     end
-    ns.activeLocale = ns.locales[code] or ns.locales.enUS
+    return ns.locales[code] or ns.locales.enUS
+end
+
+-- Strings are read once at load, so a change is visible after a UI reload.
+function ns.SetLocale(code)
+    ns.activeLocale = ns.ResolveLocale(code)
 end
 
 ---------------------------------------------------------------------------

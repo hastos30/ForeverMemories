@@ -262,6 +262,21 @@ function API.PlaySuccessSound()
     end
 end
 
+-- Reloads the interface; the client writes SavedVariables first.
+-- Not yet verified in Forever: ReloadUI() called from addon code (a click in
+-- a confirmation dialog). The /reload command itself works (v0.0.1, S7).
+function API.ReloadUI()
+    local reload = API.Resolve("ReloadUI")
+    if not reload then
+        return nil, "ReloadUI unavailable"
+    end
+    local ok, err = pcall(reload)
+    if not ok then
+        return nil, tostring(err)
+    end
+    return true
+end
+
 function API.Print(message)
     if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
         DEFAULT_CHAT_FRAME:AddMessage("|cffC9A35EForeverMemories|r: " .. tostring(message))

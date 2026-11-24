@@ -78,7 +78,7 @@ UI.builders.events = function(parent)
         { value = "clean", text = L.MODE_clean },
         { value = "dual", text = L.MODE_dual },
     }
-    fields.mode = column:Add(W.Cycle(editor, L.FIELD_MODE, modeOptions,
+    fields.mode = column:Add(W.Dropdown(editor, L.FIELD_MODE, modeOptions,
         function() return rule(selected).mode end,
         function(value) ns.Profiles.SetRule(selected, "mode", value) end))
     stepper("priority", L.FIELD_PRIORITY)

@@ -14,9 +14,9 @@ UI.builders.journal = function(parent)
     local page = 1
     local selectedId
 
-    -- Filters (click to cycle, right click goes back).
-    local function cycleButton(x, y, options, key)
-        local row = W.Cycle(parent, "", options,
+    -- Filters: dropdown lists. They live only while the window is open.
+    local function filterDropdown(x, y, options, key)
+        local row = W.Dropdown(parent, "", options,
             function() return filter[key] end,
             function(value) filter[key] = value; page = 1 end, 140)
         row:SetPoint("TOPLEFT", x, y)
@@ -42,10 +42,10 @@ UI.builders.journal = function(parent)
         { value = "fav", text = L.FAVORITES },
     }
     local filters = {
-        cycleButton(12, -10, charOptions, "char"),
-        cycleButton(158, -10, eventOptions, "event"),
-        cycleButton(304, -10, statusOptions, "status"),
-        cycleButton(450, -10, periodOptions, "period"),
+        filterDropdown(12, -10, charOptions, "char"),
+        filterDropdown(158, -10, eventOptions, "event"),
+        filterDropdown(304, -10, statusOptions, "status"),
+        filterDropdown(450, -10, periodOptions, "period"),
     }
 
     -- Scroll area with up to 50 rows.

@@ -99,10 +99,14 @@ function Mock.new(options)
     _G.YES, _G.NO = "Yes", "No"
     _G.UISpecialFrames = {}
     _G.StaticPopupDialogs = {}
+    env.popups = {}
     _G.StaticPopup_Show = function(name)
         local dialog = StaticPopupDialogs[name]
+        env.popups[#env.popups + 1] = dialog and dialog.text
         if dialog and dialog.OnAccept and env.autoConfirm then dialog.OnAccept() end
     end
+    env.reloads = 0
+    _G.ReloadUI = function() env.reloads = env.reloads + 1 end
     _G.Settings = {
         RegisterCanvasLayoutCategory = function() return {} end,
         RegisterAddOnCategory = function() end,

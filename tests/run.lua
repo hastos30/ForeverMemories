@@ -507,6 +507,73 @@ test("first run, minimap, manual panel, settings and journal actions", function(
     env.advance(2)
 end)
 
+-- Finds a shown button by its text (dropdown buttons show the current option).
+local function findButton(env, text)
+    for _, frame in ipairs(env.frames) do
+        if frame.kind == "Button" and frame.text == text and frame.scripts.OnClick then
+            return frame
+        end
+    end
+end
+
+test("dropdown opens a list, a pick saves the value and closes the list", function()
+    local env, ns = start()
+    ns.UI.Open("capture")
+    local button = assert(findButton(env, ns.L.TIMER_OFF), "timer dropdown")
+    button:Click()
+    local list = ForeverMemoriesDropdownList
+    eq(list:IsShown(), true, "list open")
+    eq(list.rows[4]:IsShown(), true, "4 options")
+    eq(list.rows[3].text:GetText(), "5 s", "option text")
+    list.rows[3]:Click()
+    eq(list:IsShown(), false, "closed after pick")
+    eq(ns.db.settings.manualTimer, 5, "saved in SavedVariables table")
+    eq(button.text, "5 s", "button shows the new value")
+    button:Click()
+    button:Click()
+    eq(list:IsShown(), false, "second click closes")
+    button:Click()
+    list.catcher:Click()
+    eq(list:IsShown(), false, "click outside closes")
+end)
+
+test("profile and rule mode dropdowns save through Profiles", function()
+    local env, ns = start()
+    ns.UI.Open("home")
+    findButton(env, ns.L.PRESET_Adventurer):Click()
+    local list = ForeverMemoriesDropdownList
+    local target
+    for i, row in ipairs(list.rows) do
+        if row:IsShown() and row.value == "Explorer" then target = row end
+    end
+    assert(target, "Explorer listed"):Click()
+    eq(ns.Profiles.ActiveName(), "Explorer", "profile switched")
+end)
+
+test("language: saved at once, reload only after consent", function()
+    local env, ns = start()
+    ns.UI.Open("settings")
+    local button = assert(findButton(env, ns.L.LANG_AUTO), "language dropdown")
+    -- "No": the choice stays saved, nothing reloads.
+    button:Click()
+    ForeverMemoriesDropdownList.rows[2]:Click() -- Русский
+    eq(ns.db.settings.locale, "ruRU", "saved")
+    eq(#env.popups, 1, "asked")
+    eq(env.popups[1], ns.L.CONFIRM_RELOAD_LANGUAGE, "reload question")
+    eq(env.reloads, 0, "no reload without consent")
+    -- "Yes": reload.
+    env.autoConfirm = true
+    button:Click()
+    ForeverMemoriesDropdownList.rows[1]:Click() -- auto (= enUS here, already shown)
+    eq(#env.popups, 1, "no question when the visible language does not change")
+    button:Click()
+    ForeverMemoriesDropdownList.rows[2]:Click()
+    eq(env.reloads, 1, "reloaded after consent")
+    -- After the reload the saved language is used.
+    local env2, ns2 = start({ savedDB = ns.db })
+    eq(ns2.L.TAKE_SHOT, "Сделать кадр", "russian after reload")
+end)
+
 test("slash commands", function()
     local env, ns = start()
     for _, cmd in ipairs({ "", "on", "off", "toggle", "shot", "status", "debug", "log", "ui",

@@ -98,3 +98,5 @@
 | clean | `UIParent:Hide()/Show()`, показ UI в `PLAYER_REGEN_DISABLED` | — | PENDING |
 | Journey | `C_Timer.NewTicker`, `C_Map.GetPlayerMapPosition`, `UnitIsAFK` | PASS (функции есть) | PENDING |
 | Options | `Settings.RegisterCanvasLayoutCategory`, `AddonCompartmentFunc` | PENDING | PENDING |
+| Смена языка (0.4.1) | `ReloadUI()` из диалога `StaticPopup` | PENDING | PENDING |
+| Выпадающий список (0.4.1) | `SetFrameStrata`, `SetClampedToScreen`, `SetColorTexture`, слой `HIGHLIGHT`, `UISpecialFrames` | PENDING | PENDING |

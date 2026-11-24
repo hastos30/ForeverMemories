@@ -206,7 +206,7 @@ end
 
 UI.builders.home = function(parent)
     local column = W.Column(parent, 16, 16)
-    column:Add(W.Cycle(parent, L.PROFILE, UI.ProfileOptions,
+    column:Add(W.Dropdown(parent, L.PROFILE, UI.ProfileOptions,
         function() return ns.Profiles.ActiveName() end,
         function(name) ns.Profiles.SetActive(name, ns.Profiles.IsCharacterOverride()) end, 160))
     local stats = column:Add(W.Text(parent, ""), 22)

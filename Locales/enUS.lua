@@ -87,6 +87,8 @@ ns.locales.enUS = {
 
     -- Settings tab
     LANGUAGE = "Language", LANG_AUTO = "Game language", LANGUAGE_RELOAD = "Language changes apply after /reload.",
+    CONFIRM_RELOAD_LANGUAGE = "The language is saved. Reload the interface now to apply it?",
+    RELOAD_NOW = "Reload", LATER = "Later", RELOAD_MANUALLY = "Could not reload the interface. Type /reload.",
     SHOW_MINIMAP = "Minimap button", NOTIFICATIONS = "Notifications", SOUND = "Sound",
     NOTIFY_DURATION = "Notification time", WINDOW_SCALE = "Window scale", RESET_POSITION = "Reset window position",
 
