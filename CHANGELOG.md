@@ -2,7 +2,9 @@
 
 Формат: [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии: [SemVer](https://semver.org/lang/ru/).
 
-## [0.0.1] — 2026-11-24 (не проверено в клиенте)
+## [0.0.1] — 2026-11-24
+
+Проверено в клиенте World of Warcraft: Forever 1.60.1 (71037): см. API_COMPATIBILITY.md.
 
 ### Added
 - Минимальный TOC для World of Warcraft: Forever (`Interface: 16001` по документации, требует подтверждения).

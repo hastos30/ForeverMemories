@@ -9,12 +9,13 @@
 
 | Поле | Значение |
 |---|---|
-| Клиент (`/fm status`, строка Client) | _заполнить_ |
-| Build | _заполнить_ |
-| TOC из `GetBuildInfo()` | _заполнить_ |
-| Локаль клиента | _заполнить_ |
-| Дата теста | _заполнить_ |
-| Тестировал | _заполнить_ |
+| Клиент (`/fm status`, строка Client) | 1.60.1 |
+| Build | 71037 (Nov 18 2026) |
+| TOC из `GetBuildInfo()` | 16001 — совпадает с `## Interface` |
+| Локаль клиента | enUS (судя по интерфейсу) |
+| Дата теста | 2026-11-24 |
+| Тестировал | Viktor, Linux (Wine), вместе с другими аддонами |
+| Папка снимков | `~/games/World of Warcraft/_forever_/Screenshots/` |
 
 ## Что известно до теста (документация, 2026-11-24)
 
@@ -33,50 +34,50 @@
 
 | Функция | Нужна для | Клиент | Примечание |
 |---|---|---|---|
-| `Screenshot` | съёмка | PENDING | |
-| `GetBuildInfo` | диагностика | PENDING | |
-| `C_Timer.After` | таймауты, задержки | PENDING | |
-| `C_Timer.NewTimer` | отменяемые таймеры (v0.1.0) | PENDING | |
-| `InCombatLockdown` | политика боя | PENDING | |
-| `UnitIsAFK` | путешествие | PENDING | |
-| `UnitLevel` | LEVEL | PENDING | |
-| `GetMaxPlayerLevel` | MAX_LEVEL | PENDING | |
-| `GetRealZoneText` | ZONE | PENDING | |
-| `C_Map.GetBestMapForUnit` | стабильный ID зоны | PENDING | |
-| `C_Map.GetPlayerMapPosition` | смена места (путешествие) | PENDING | может быть ограничена в инстансах |
-| `IsInInstance` | контекст | PENDING | |
-| `issecretvalue` | защита от secret values | PENDING | |
-| `C_EventUtils.IsEventValid` | безопасная регистрация событий | PENDING | |
-| `C_AddOns.GetAddOnMetadata` | версия из TOC | PENDING | |
-| `GetLocale` | RU/EN | PENDING | |
-| `GetTime`, `time`, `date` | время | PENDING | |
+| `Screenshot` | съёмка | PASS | |
+| `GetBuildInfo` | диагностика | PASS | |
+| `C_Timer.After` | таймауты, задержки | PASS | |
+| `C_Timer.NewTimer` | отменяемые таймеры (v0.1.0) | PASS | |
+| `InCombatLockdown` | политика боя | PASS | |
+| `UnitIsAFK` | путешествие | PASS | |
+| `UnitLevel` | LEVEL | PASS | |
+| `GetMaxPlayerLevel` | MAX_LEVEL | PASS | |
+| `GetRealZoneText` | ZONE | PASS | |
+| `C_Map.GetBestMapForUnit` | стабильный ID зоны | PASS | |
+| `C_Map.GetPlayerMapPosition` | смена места (путешествие) | PASS | может быть ограничена в инстансах |
+| `IsInInstance` | контекст | PASS | |
+| `issecretvalue` | защита от secret values | PASS | |
+| `C_EventUtils.IsEventValid` | безопасная регистрация событий | PASS | |
+| `C_AddOns.GetAddOnMetadata` | версия из TOC | PASS | |
+| `GetLocale` | RU/EN | PASS | |
+| `GetTime`, `time`, `date` | время | PASS | |
 
 ## События (регистрация — `/fm debug`; срабатывание — сценарий)
 
 | Событие | Регистрация | Сценарий проверки | Сработало? | Примечание |
 |---|---|---|---|---|
-| `SCREENSHOT_STARTED` | PENDING | `/fm shot` | PENDING | |
-| `SCREENSHOT_SUCCEEDED` | PENDING | `/fm shot`, файл появился | PENDING | синхронно или нет — см. `sync=` в `/fm status` |
-| `SCREENSHOT_FAILED` | PENDING | трудно вызвать намеренно | PENDING | можно SKIP |
-| `PLAYER_LEVEL_UP` | PENDING | получить уровень | PENDING | |
-| `ZONE_CHANGED_NEW_AREA` | PENDING | сменить зону | PENDING | |
-| `PLAYER_ENTERING_WORLD` | PENDING | вход / `/reload` | PENDING | |
-| `PLAYER_LEAVING_WORLD` | PENDING | телепорт / выход | PENDING | |
-| `PLAYER_REGEN_DISABLED/ENABLED` | PENDING | вход/выход из боя | PENDING | |
-| `PLAYER_DEAD` | PENDING | смерть | PENDING | |
-| `CHAT_MSG_LOOT` | PENDING | поднять предмет | PENDING | payload не сохраняется |
-| `ENCOUNTER_END` | PENDING | убить босса подземелья | PENDING | |
-| `ADDON_ACTION_BLOCKED/FORBIDDEN` | PENDING | должно НЕ срабатывать на `/fm shot` | PENDING | если сработало — `Screenshot()` защищён |
+| `SCREENSHOT_STARTED` | PASS | `/fm shot` | PASS | приходит перед результатом (`started=true`) |
+| `SCREENSHOT_SUCCEEDED` | PASS | `/fm shot` | PASS | асинхронно (`sync=false`), ~0.08 с; в бою тоже; 2 сигнала = 2 файла, время файла совпадает с секундой записи |
+| `SCREENSHOT_FAILED` | PASS | трудно вызвать намеренно | SKIP | |
+| `PLAYER_LEVEL_UP` | PASS | получить уровень | PENDING | |
+| `ZONE_CHANGED_NEW_AREA` | PASS | вход в мир | PASS (1 раз) | также при входе, не только при смене зоны |
+| `PLAYER_ENTERING_WORLD` | PASS | вход / `/reload` | PASS | |
+| `PLAYER_LEAVING_WORLD` | PASS | телепорт / выход | PENDING | |
+| `PLAYER_REGEN_DISABLED/ENABLED` | PASS | вход/выход из боя | PENDING | `InCombatLockdown()` в бою = true (подтверждено `combat=true`) |
+| `PLAYER_DEAD` | PASS | смерть | PENDING | |
+| `CHAT_MSG_LOOT` | PASS | поднять предмет | PENDING | payload не сохраняется |
+| `ENCOUNTER_END` | PASS | убить босса подземелья | PENDING | |
+| `ADDON_ACTION_BLOCKED/FORBIDDEN` | PASS | должно НЕ срабатывать на `/fm shot` | PASS (не сработало) | `Screenshot()` из slash-команды не защищён, в т.ч. в бою |
 
 ## Сценарии v0.0.1
 
 | ID | Сценарий | Ожидание | Результат | Доказательство |
 |---|---|---|---|---|
-| S1 | Аддон виден в списке и загружается без «устарел» | нет ошибок Lua | PENDING | |
-| S2 | `/fm shot` вне боя | статус `success`, новый файл в `Screenshots` | PENDING | имя файла |
-| S3 | `/fm shot` в бою | кадр есть или понятная причина | PENDING | |
+| S1 | Аддон виден в списке и загружается без «устарел» | нет ошибок Lua | PASS | список аддонов, `/fm debug`; Lua Warning относится к другому аддону (Trailsmith) |
+| S2 | `/fm shot` вне боя | статус `success`, новый файл в `Screenshots` | PASS | `Shot #1` 15:46:09 → `WoWScrnShot_112426_154609.jpg` (540 981 байт) |
+| S3 | `/fm shot` в бою | кадр есть или понятная причина | PASS | `#2` 15:47:20, combat=true → `WoWScrnShot_112426_154720.jpg` (628 677 байт) |
 | S4 | 5 раз `/fm shot` подряд (по одному после ответа) | 5 файлов, 5 записей `success` | PENDING | |
-| S5 | `/fm shot` дважды очень быстро (макрос) | второй — `busy`, один файл | PENDING | |
-| S6 | Нативный Print Screen | в `/fm status` растёт `unattributed`, записи нет | PENDING | |
-| S7 | `/reload`, затем `/fm status` | `loads` вырос на 1, история сохранена | PENDING | |
-| S8 | Полный выход из игры и вход | история сохранена | PENDING | |
+| S5 | `/fm shot` дважды очень быстро (макрос) | второй — `busy`, один файл | PASS | 2 запуска макроса: `skipped: busy (WAIT_RESULT)` + `Shot #3/#4: success`; файлы по словам тестировщика «всё ок» |
+| S6 | Нативный Print Screen | в `/fm status` растёт `unattributed`, записи нет | PASS | 6 нажатий = 6 файлов = `unattributed 6`, новых записей нет; один снимок даёт один сигнал |
+| S7 | `/reload`, затем `/fm status` | `loads` вырос на 1, история сохранена | PASS | `loads` 3 → 4, записи #1 и #2 на месте |
+| S8 | Полный выход из игры и вход | история сохранена | PASS | после перезахода нумерация продолжилась: `Shot #5` (счётчик `nextShotId` восстановлен из SavedVariables) |
