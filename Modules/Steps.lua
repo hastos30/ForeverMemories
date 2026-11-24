@@ -171,6 +171,13 @@ function Steps.Total()
     return steps and math.floor(steps.total) or 0
 end
 
+-- All steps of the current character in thousands, with the fraction
+-- (1000 steps -> 1.0). Counted only since the tracker was installed.
+function Steps.TotalThousands()
+    local steps = data()
+    return steps and steps.total / 1000 or 0
+end
+
 -- Whole steps of a day key (0 for a day without records).
 function Steps.OnDay(day)
     local steps = data()

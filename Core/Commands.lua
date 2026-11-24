@@ -41,7 +41,7 @@ function commands.status()
     Print(string.format("v%s  %s: %s  %s", ns.version, L.AUTO_CAPTURE,
         ns.db.settings.enabled and L.STATE_ACTIVE or L.STATE_PAUSED, ns.characterKey))
     Print(string.format("%s %s, %s %s, %s %s, %s %s", L.STAT_TOTAL, ns.Num(s.total), L.STAT_TODAY,
-        ns.Num(s.today), L.STAT_ZONES, ns.Num(s.zones), L.STAT_STEPS_TODAY, ns.Num(ns.Steps.Today())))
+        ns.Num(s.today), L.STAT_DISTANCE, ns.Dec(ns.Steps.TotalThousands(), 2), L.STAT_STEPS_TODAY, ns.Num(ns.Steps.Today())))
     Print(string.format("engine %s, queue %d, calls %d, saved %d, unattributed %d",
         ns.Engine.GetState(), ns.Engine.QueueSize(), session.calls, session.saved, session.unattributed))
 end

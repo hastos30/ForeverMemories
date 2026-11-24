@@ -2,7 +2,7 @@
 local _, ns = ...
 
 ns.locales.enUS = {
-    THOUSANDS_SEP = ",",
+    THOUSANDS_SEP = ",", DECIMAL_SEP = ".",
 
     -- Window
     SLOGAN = "Your adventure. Your story.",
@@ -16,11 +16,11 @@ ns.locales.enUS = {
 
     -- Home
     CURRENT_CHARACTER_STATS = "Statistics of the current character",
-    STAT_TOTAL = "Total screenshots", STAT_TODAY = "Screenshots today", STAT_ZONES = "Zones",
+    STAT_TOTAL = "Total screenshots", STAT_TODAY = "Screenshots today", STAT_DISTANCE = "Total distance",
     STAT_STEPS_TODAY = "Steps today",
     TIP_STAT_TOTAL = "Screenshots this character has saved since the addon was installed.",
     TIP_STAT_TODAY = "Screenshots saved today (since midnight, your computer's time).",
-    TIP_STAT_ZONES = "Different zones where this character took screenshots.",
+    TIP_STAT_DISTANCE = "All steps this character has walked, in thousands: 1.00 = 1,000 steps. An estimate, counted from the moment the step counter was installed.",
     STEPS_NOTE = "The number of steps is an estimate based on the character's movement.",
     RECENT_SHOTS = "Recent screenshots",
     NO_SHOTS_YET = "This character has no screenshots yet",

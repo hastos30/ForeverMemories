@@ -336,12 +336,12 @@ UI.builders.home = function(parent)
     local cards = {
         total = statCard(parent, "Interface\\Icons\\INV_Misc_Spyglass_03", L.STAT_TOTAL, L.TIP_STAT_TOTAL),
         today = statCard(parent, "Interface\\Icons\\INV_Misc_PocketWatch_01", L.STAT_TODAY, L.TIP_STAT_TODAY),
-        zones = statCard(parent, "Interface\\Icons\\INV_Misc_Map_01", L.STAT_ZONES, L.TIP_STAT_ZONES),
+        distance = statCard(parent, "Interface\\Icons\\INV_Misc_Map_01", L.STAT_DISTANCE, L.TIP_STAT_DISTANCE),
         steps = statCard(parent, "Interface\\Icons\\Ability_Rogue_Sprint", L.STAT_STEPS_TODAY, L.STEPS_NOTE),
     }
     cards.total:SetPoint("TOPLEFT", 0, -50)
     cards.today:SetPoint("TOPRIGHT", 0, -50)
-    cards.zones:SetPoint("TOPLEFT", 0, -150)
+    cards.distance:SetPoint("TOPLEFT", 0, -150)
     cards.steps:SetPoint("TOPRIGHT", 0, -150)
 
     local heading = W.Heading(parent, L.RECENT_SHOTS)
@@ -360,6 +360,7 @@ UI.builders.home = function(parent)
 
     local function refreshSteps()
         cards.steps.value:SetText(ns.Num(ns.Steps.Today()))
+        cards.distance.value:SetText(ns.Dec(ns.Steps.TotalThousands(), 2))
     end
     return {
         RefreshSteps = refreshSteps,
@@ -369,7 +370,6 @@ UI.builders.home = function(parent)
             local s = ns.History.Stats()
             cards.total.value:SetText(ns.Num(s.total))
             cards.today.value:SetText(ns.Num(s.today))
-            cards.zones.value:SetText(ns.Num(s.zones))
             refreshSteps()
             local recent = ns.History.Recent(5)
             for i, row in ipairs(rows) do

@@ -3,7 +3,7 @@
 local addonName, ns = ...
 
 ns.name = addonName
-ns.version = "0.6.0"
+ns.version = "0.7.0"
 
 -- Our own frames (the window). They are hidden while a screenshot is
 -- taken so they never appear in a memory.
@@ -83,6 +83,11 @@ end
 -- Whole number with the separator of the active language: "12 458".
 function ns.Num(value)
     return ns.Util.FormatNumber(value, ns.L.THOUSANDS_SEP)
+end
+
+-- Decimal number in the style of the active language: "3,27" / "3.27".
+function ns.Dec(value, decimals)
+    return ns.Util.FormatDecimal(value, decimals, ns.L.THOUSANDS_SEP, ns.L.DECIMAL_SEP)
 end
 
 -- Number with the right word form: ns.Count(1245872, "STEPS") ->

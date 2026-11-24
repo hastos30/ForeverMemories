@@ -514,6 +514,18 @@ test("steps: fractions accumulate, whole numbers shown", function()
     eq(ns.Steps.Total(), math.floor(ns.character.steps.total), "shown as whole number")
 end)
 
+test("steps: total distance in thousands of steps", function()
+    local env, ns = start()
+    eq(ns.Steps.TotalThousands(), 0, "nothing walked")
+    ns.character.steps.total = 1000
+    eq(ns.Dec(ns.Steps.TotalThousands(), 2), "1.00", "1000 steps -> 1.00")
+    ns.character.steps.total = 12458.9
+    eq(ns.Dec(ns.Steps.TotalThousands(), 2), "12.45", "two decimals, cut not rounded")
+    eq(ns.Util.FormatDecimal(12458.567, 2, " ", ","), "12 458,56", "russian style")
+    eq(ns.Util.FormatDecimal(0.07, 2, ",", "."), "0.07", "leading zero kept")
+    eq(ns.Util.FormatDecimal(5, 2, ",", "."), "5.00", "whole number")
+end)
+
 test("steps: midnight splits the counting between days, no restart needed", function()
     local midnight = os.time({ year = 2026, month = 11, day = 25, hour = 0 })
     local env = Mock.new()
@@ -819,6 +831,9 @@ test("home: statistics cards, last shots, empty message and View all", function(
     eq(hasText(env, "Nedisan"), true, "character name")
     eq(hasText(env, "Reached level 11"), true, "recent shot")
     eq(hasText(env, ns.Num(ns.Steps.Today())), true, "steps today")
+    eq(hasText(env, "Total distance"), true, "distance card")
+    eq(hasText(env, ns.Dec(ns.Steps.TotalThousands(), 2)), true, "distance value")
+    eq(hasText(env, "Zones"), false, "zones card removed")
     findButton(env, "Settings"):Click()
     ns.UI.ShowTab("home")
     for _, frame in ipairs(env.frames) do

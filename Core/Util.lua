@@ -94,6 +94,17 @@ function Util.FormatNumber(value, separator)
     return (n < 0 and "-" or "") .. result
 end
 
+-- Number with `decimals` digits after the separator, cut (not rounded) so
+-- the text never shows more than really counted: 12458.567 -> "12 458,56".
+function Util.FormatDecimal(value, decimals, separator, decimalSep)
+    local scale = 10 ^ decimals
+    local scaled = math.floor((tonumber(value) or 0) * scale + 1e-9)
+    local whole = math.floor(scaled / scale)
+    local fraction = scaled - whole * scale
+    return Util.FormatNumber(whole, separator) .. (decimalSep or ".")
+        .. string.format("%0" .. decimals .. "d", fraction)
+end
+
 -- Plural form for a count: "one", "few" or "many" (Russian rules) or
 -- "one" / "many" for English.
 function Util.PluralForm(n, locale)
