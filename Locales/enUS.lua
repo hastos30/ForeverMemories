@@ -21,7 +21,7 @@ ns.locales.enUS = {
     TIP_STAT_TODAY = "Screenshots saved today (since midnight, your computer's time).",
     TIP_STAT_ZONES_TODAY = "Different zones this character has been in today.",
     TIP_STAT_PLAYTIME_TODAY = "Active play today. Time spent AFK, on loading screens and outside the game is not counted. A new day starts at midnight, your computer's time.",
-    DURATION_HM = "%dh %dm", DURATION_M = "%dm",
+    DURATION_DHM = "%dd %dh %dm", DURATION_HM = "%dh %dm", DURATION_M = "%dm",
     STEPS_NOTE = "The number of steps is an estimate based on the character's movement.",
     CURRENT_LOCATION = "Current location", UNKNOWN_LOCATION = "Unknown",
     NEXT_PASSIVE = "Next passive screenshot",

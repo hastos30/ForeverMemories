@@ -368,10 +368,15 @@ function UI.CharacterHeader(parent, captionText)
     end
 end
 
--- "3h 42m" / "3 ч 42 мин"; under an hour only minutes: "42m".
+-- "5d 3h 30m" / "5 д 3 ч 30 мин" from a day on, "3h 42m" / "3 ч 42 мин"
+-- from an hour on, otherwise only minutes: "42m".
 function UI.FormatDuration(seconds)
     local minutes = math.floor((seconds or 0) / 60)
     local hours = math.floor(minutes / 60)
+    local days = math.floor(hours / 24)
+    if days > 0 then
+        return string.format(L.DURATION_DHM, days, hours % 24, minutes % 60)
+    end
     if hours > 0 then
         return string.format(L.DURATION_HM, hours, minutes % 60)
     end

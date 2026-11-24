@@ -817,13 +817,15 @@ test("playtime: one shared clock drives playtime and the passive timer", functio
     near(ns.character.passive.elapsed, ns.Activity.Today(), 1.01, "same seconds")
 end)
 
-test("playtime: format 3h 42m / 3 ч 42 мин", function()
+test("playtime: format 5d 3h 30m / 3h 42m / 3 ч 42 мин", function()
     local _, ns = start()
     eq(ns.UI.FormatDuration(3 * 3600 + 42 * 60 + 59), "3h 42m", "hours and minutes")
     eq(ns.UI.FormatDuration(42 * 60), "42m", "under an hour")
     eq(ns.UI.FormatDuration(0), "0m", "zero")
     local _, ru = start({ locale = "ruRU" })
     eq(ru.UI.FormatDuration(3 * 3600 + 42 * 60), "3 ч 42 мин", "russian")
+    eq(ns.UI.FormatDuration(5 * 86400 + 3 * 3600 + 30 * 60), "5d 3h 30m", "days")
+    eq(ru.UI.FormatDuration(5 * 86400 + 30 * 60), "5 д 0 ч 30 мин", "russian days")
 end)
 
 test("playtime: midnight starts a new day; kept after reload; per character", function()
