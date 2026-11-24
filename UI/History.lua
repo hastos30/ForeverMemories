@@ -1,7 +1,10 @@
 -- UI/History.lua
--- "History" tab (spec 7): the current character's shots grouped by day,
--- and steps (total, seven-day chart, daily list). Long lists reuse a few
--- row frames (W.ScrollList) instead of creating one frame per record.
+-- "History" tab (spec 5, v0.8.0): lifetime statistics of the current
+-- character. A 2 x 2 dashboard (total screenshots, total steps, zones
+-- visited, days played) stays visible above three sub-views:
+-- Screenshots (grouped by day), Steps (seven-day chart, daily list) and
+-- Locations (zones by day). Long lists reuse a few row frames
+-- (W.ScrollList) instead of creating one frame per record.
 local _, ns = ...
 
 local L = ns.L
@@ -9,6 +12,8 @@ local W = ns.Widgets
 local UI = ns.UI
 
 local WIDTH = UI.CONTENT_WIDTH
+local VIEW_TOP = 260     -- sub-views start below the dashboard and buttons
+local VIEW_HEIGHT = 310  -- content height (570) - VIEW_TOP
 
 ---------------------------------------------------------------------------
 -- Shots
@@ -46,9 +51,9 @@ end
 
 local function buildShots(parent)
     local view = CreateFrame("Frame", nil, parent)
-    view:SetPoint("TOPLEFT", 0, -74)
+    view:SetPoint("TOPLEFT", 0, -VIEW_TOP)
     view:SetPoint("BOTTOMRIGHT", 0, 0)
-    local list = W.ScrollList(view, WIDTH, 360, SHOT_ROW, makeShotListRow, fillShotListRow)
+    local list = W.ScrollList(view, WIDTH, VIEW_HEIGHT - 26, SHOT_ROW, makeShotListRow, fillShotListRow)
     list:SetPoint("TOPLEFT", 0, 0)
     local empty = W.Text(view, L.NO_SHOTS_YET, "GameFontHighlight", W.COLORS.muted)
     empty:SetPoint("TOPLEFT", 0, -12)
@@ -69,7 +74,7 @@ end
 ---------------------------------------------------------------------------
 -- Steps
 ---------------------------------------------------------------------------
-local CHART_HEIGHT = 96
+local CHART_HEIGHT = 66
 
 local function buildChart(parent)
     local chart = CreateFrame("Frame", nil, parent)
@@ -149,36 +154,22 @@ end
 
 local function buildSteps(parent)
     local view = CreateFrame("Frame", nil, parent)
-    view:SetPoint("TOPLEFT", 0, -74)
+    view:SetPoint("TOPLEFT", 0, -VIEW_TOP)
     view:SetPoint("BOTTOMRIGHT", 0, 0)
 
-    local totalBox = W.Panel(view, W.COLORS.panel, W.COLORS.divider)
-    totalBox:SetSize(WIDTH, 50)
-    totalBox:SetPoint("TOPLEFT", 0, 0)
-    local icon = W.Icon(totalBox, "Interface\\Icons\\Ability_Rogue_Sprint", 30)
-    icon:SetPoint("LEFT", 12, 0)
-    local totalLabel = W.Text(totalBox, L.TOTAL_STEPS, "GameFontHighlightSmall", W.COLORS.muted)
-    totalLabel:SetPoint("TOPLEFT", icon, "TOPRIGHT", 12, 0)
-    local total = W.Text(totalBox, "0", "GameFontNormalLarge", W.COLORS.heading)
-    total:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 12, 0)
-    W.Tooltip(totalBox, L.STEPS_NOTE, L.TOTAL_STEPS)
-
     local chartTitle = W.Text(view, L.LAST_7_DAYS, "GameFontNormal", W.COLORS.heading)
-    chartTitle:SetPoint("TOPLEFT", 0, -60)
+    chartTitle:SetPoint("TOPLEFT", 0, 0)
     local chart = buildChart(view)
-    chart:SetPoint("TOPLEFT", 0, -76)
+    chart:SetPoint("TOPLEFT", 0, -16)
 
-    local listTitle = W.Text(view, L.STEPS_HISTORY, "GameFontNormal", W.COLORS.heading)
-    listTitle:SetPoint("TOPLEFT", 0, -220)
-    local list = W.ScrollList(view, WIDTH, 150, DAY_ROW, makeDayRow, fillDayRow)
-    list:SetPoint("TOPLEFT", 0, -238)
+    local list = W.ScrollList(view, WIDTH, VIEW_HEIGHT - 150, DAY_ROW, makeDayRow, fillDayRow)
+    list:SetPoint("TOPLEFT", 0, -128)
     local empty = W.Text(view, L.NO_STEPS_YET, "GameFontHighlight", W.COLORS.muted)
-    empty:SetPoint("TOPLEFT", 0, -244)
+    empty:SetPoint("TOPLEFT", 0, -136)
     local note = W.Text(view, L.STEPS_NOTE, "GameFontHighlightSmall", W.COLORS.muted)
     note:SetPoint("BOTTOMLEFT", 0, 2)
 
     function view:Refresh()
-        total:SetText(ns.Num(ns.Steps.Total()))
         chart:Refresh()
         local days = ns.Steps.Days()
         list:SetItems(days, true)
@@ -188,17 +179,80 @@ local function buildSteps(parent)
 end
 
 ---------------------------------------------------------------------------
+-- Locations
+---------------------------------------------------------------------------
+local ZONE_ROW = 40
+
+local function makeZoneRow(parent)
+    local row = CreateFrame("Frame", nil, parent)
+    row.zone = W.Panel(row, W.COLORS.panel, W.COLORS.divider)
+    row.zone:SetPoint("TOPLEFT", 0, -2)
+    row.zone:SetPoint("BOTTOMRIGHT", 0, 2)
+    row.icon = W.IconBox(row.zone, "Interface\\Icons\\INV_Misc_Map_01", 26)
+    row.icon:SetPoint("LEFT", 8, 0)
+    row.name = W.Text(row.zone, "", "GameFontHighlight", W.COLORS.text)
+    row.name:SetPoint("LEFT", row.icon, "RIGHT", 10, 0)
+    row.name:SetPoint("RIGHT", row.zone, "RIGHT", -150, 0)
+    row.first = W.Text(row.zone, L.FIRST_VISIT, "GameFontHighlightSmall", W.COLORS.active)
+    row.first:SetPoint("RIGHT", row.zone, "RIGHT", -60, 0)
+    row.first:SetJustifyH("RIGHT")
+    row.time = W.Text(row.zone, "", "GameFontHighlightSmall", W.COLORS.muted)
+    row.time:SetPoint("RIGHT", row.zone, "RIGHT", -8, 0)
+    row.time:SetJustifyH("RIGHT")
+    row.day = W.Text(row, "", "GameFontNormal", W.COLORS.heading)
+    row.day:SetPoint("BOTTOMLEFT", 0, 8)
+    row.count = W.Text(row, "", "GameFontHighlightSmall", W.COLORS.muted)
+    row.count:SetPoint("BOTTOMRIGHT", -8, 8)
+    row.count:SetJustifyH("RIGHT")
+    return row
+end
+
+local function fillZoneRow(row, item)
+    local isDay = item.kind == "day"
+    row.zone:SetShown(not isDay)
+    row.day:SetShown(isDay)
+    row.count:SetShown(isDay)
+    if isDay then
+        row.day:SetText(ns.History.DayLabel(item.day))
+        row.count:SetText(ns.Count(item.count, "ZONES"))
+    else
+        row.name:SetText(item.entry.name)
+        row.first:SetShown(item.entry.first == true)
+        row.time:SetText(date("%H:%M", item.entry.t))
+    end
+end
+
+local function buildLocations(parent)
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetPoint("TOPLEFT", 0, -VIEW_TOP)
+    view:SetPoint("BOTTOMRIGHT", 0, 0)
+    local list = W.ScrollList(view, WIDTH, VIEW_HEIGHT, ZONE_ROW, makeZoneRow, fillZoneRow)
+    list:SetPoint("TOPLEFT", 0, 0)
+    local empty = W.Text(view, L.NO_ZONES_YET, "GameFontHighlight", W.COLORS.muted)
+    empty:SetPoint("TOPLEFT", 0, -12)
+    function view:Refresh()
+        local rows = ns.Locations.Rows()
+        list:SetItems(rows, true)
+        empty:SetShown(#rows == 0)
+    end
+    return view
+end
+
+---------------------------------------------------------------------------
 -- Tab
 ---------------------------------------------------------------------------
 UI.builders.history = function(parent)
-    local portrait = parent:CreateTexture(nil, "ARTWORK")
-    portrait:SetSize(20, 20)
-    portrait:SetPoint("TOPLEFT", 0, 0)
-    local name = W.Text(parent, "", "GameFontNormal", W.COLORS.heading)
-    name:SetPoint("LEFT", portrait, "RIGHT", 8, 0)
+    local refreshHeader = UI.CharacterHeader(parent, L.LIFETIME_STATS)
+    local cards = UI.Dashboard(parent, 44, {
+        { "shots", "Interface\\Icons\\INV_Misc_Spyglass_03", L.STAT_TOTAL, L.TIP_STAT_TOTAL },
+        { "steps", "Interface\\Icons\\Ability_Rogue_Sprint", L.TOTAL_STEPS, L.STEPS_NOTE },
+        { "zones", "Interface\\Icons\\INV_Misc_Map_01", L.STAT_ZONES_TOTAL, L.TIP_STAT_ZONES_TOTAL },
+        { "days", "Interface\\Icons\\INV_Misc_Note_01", L.STAT_DAYS_PLAYED, L.TIP_STAT_DAYS_PLAYED },
+    })
 
-    local half = (WIDTH - 10) / 2
-    local views = { shots = buildShots(parent), steps = buildSteps(parent) }
+    local order = { "shots", "steps", "zones" }
+    local labels = { shots = L.SUB_SHOTS, steps = L.SUB_STEPS, zones = L.SUB_ZONES }
+    local views = { shots = buildShots(parent), steps = buildSteps(parent), zones = buildLocations(parent) }
     local buttons = {}
     local current = "shots"
 
@@ -210,23 +264,30 @@ UI.builders.history = function(parent)
         end
         views[current]:Refresh()
     end
-    buttons.shots = W.Button(parent, L.SUB_SHOTS, half, 34, function() select("shots") end)
-    buttons.shots:SetPoint("TOPLEFT", 0, -28)
-    buttons.steps = W.Button(parent, L.SUB_STEPS, half, 34, function() select("steps") end)
-    buttons.steps:SetPoint("TOPRIGHT", 0, -28)
+    local gap = 6
+    local third = (WIDTH - 2 * gap) / 3
+    for i, id in ipairs(order) do
+        buttons[id] = W.Button(parent, labels[id], third, 30, function() select(id) end)
+        buttons[id]:SetPoint("TOPLEFT", (i - 1) * (third + gap), -222)
+    end
 
+    local function refreshSteps()
+        cards.steps.value:SetText(ns.Num(ns.Steps.Total()))
+        if current == "steps" then
+            views.steps:Refresh()
+        end
+    end
     return {
-        -- Opening the tab from elsewhere (e.g. "View all") picks a sub-view.
+        -- Opening the tab from elsewhere (e.g. Home's link) picks a sub-view.
         Select = function(id) current = id end,
         Refresh = function()
-            UI.SetClassIcon(portrait)
-            name:SetText(ns.character and ns.character.name or "?")
+            refreshHeader()
+            cards.shots.value:SetText(ns.Num(ns.History.Stats().total))
+            cards.zones.value:SetText(ns.Num(ns.Locations.Total()))
+            cards.days.value:SetText(ns.Num(ns.Activity.DaysPlayed()))
+            refreshSteps()
             select(current)
         end,
-        RefreshSteps = function()
-            if current == "steps" then
-                views.steps:Refresh()
-            end
-        end,
+        RefreshSteps = refreshSteps,
     }
 end

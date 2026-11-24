@@ -40,8 +40,9 @@ function commands.status()
     local session = ns.Engine.Session()
     Print(string.format("v%s  %s: %s  %s", ns.version, L.AUTO_CAPTURE,
         ns.db.settings.enabled and L.STATE_ACTIVE or L.STATE_PAUSED, ns.characterKey))
-    Print(string.format("%s %s, %s %s, %s %s, %s %s", L.STAT_TOTAL, ns.Num(s.total), L.STAT_TODAY,
-        ns.Num(s.today), L.STAT_DISTANCE, ns.Dec(ns.Steps.TotalThousands(), 2), L.STAT_STEPS_TODAY, ns.Num(ns.Steps.Today())))
+    Print(string.format("%s %s, %s %s, %s %s, %s %s, %s %s", L.STAT_TOTAL, ns.Num(s.total), L.STAT_TODAY,
+        ns.Num(s.today), L.STAT_STEPS_TODAY, ns.Num(ns.Steps.Today()), L.STAT_ZONES_TODAY,
+        ns.Num(ns.Locations.Today()), L.STAT_PLAYTIME_TODAY, ns.UI.FormatDuration(ns.Activity.Today())))
     Print(string.format("engine %s, queue %d, calls %d, saved %d, unattributed %d",
         ns.Engine.GetState(), ns.Engine.QueueSize(), session.calls, session.saved, session.unattributed))
 end
@@ -79,6 +80,10 @@ function commands.debug()
         ns.db.settings.passive and "on" or "off", ns.db.settings.passiveInterval,
         math.floor(elapsed / 60), math.floor(elapsed % 60), due / 60, passiveState,
         tostring(ns.API.IsAFK())))
+    local playtime = ns.character.playtime
+    Print(string.format("Playtime: today %ds, total %ds, now %s; zones today %d, visited %d, days played %d",
+        ns.Activity.Today(), math.floor(playtime.total), ns.Activity.BlockReason() or "active",
+        ns.Locations.Today(), ns.Locations.Total(), ns.Activity.DaysPlayed()))
     local character = ns.character
     Print(string.format("Character: %s, GUID %s%s, guild %s", ns.characterKey, tostring(character.guid),
         character.guidChanged and " (changed!)" or "", tostring(character.guild)))

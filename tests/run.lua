@@ -514,13 +514,9 @@ test("steps: fractions accumulate, whole numbers shown", function()
     eq(ns.Steps.Total(), math.floor(ns.character.steps.total), "shown as whole number")
 end)
 
-test("steps: total distance in thousands of steps", function()
+test("decimal numbers: cut, not rounded", function()
     local env, ns = start()
-    eq(ns.Steps.TotalThousands(), 0, "nothing walked")
-    ns.character.steps.total = 1000
-    eq(ns.Dec(ns.Steps.TotalThousands(), 2), "1.00", "1000 steps -> 1.00")
-    ns.character.steps.total = 12458.9
-    eq(ns.Dec(ns.Steps.TotalThousands(), 2), "12.45", "two decimals, cut not rounded")
+    eq(ns.Dec(12.4589, 2), "12.45", "two decimals, cut not rounded")
     eq(ns.Util.FormatDecimal(12458.567, 2, " ", ","), "12 458,56", "russian style")
     eq(ns.Util.FormatDecimal(0.07, 2, ",", "."), "0.07", "leading zero kept")
     eq(ns.Util.FormatDecimal(5, 2, ",", "."), "5.00", "whole number")
@@ -696,6 +692,20 @@ test("passive: duplicate protection and the shared queue", function()
     eq(passiveShots(ns), 1, "one shot")
 end)
 
+test("passive: refused by the Engine's limits -> Waiting until the retry", function()
+    local env, ns = start()
+    local submit = ns.Engine.Submit
+    ns.Engine.Submit = function() return false, "limit_hour" end
+    env.advance(30 * MIN + 2)
+    eq((ns.Passive.Timer()), "waiting", "refused: waiting")
+    env.advance(30)
+    eq((ns.Passive.Timer()), "waiting", "still waiting for the retry")
+    ns.Engine.Submit = submit
+    env.advance(31)
+    eq(passiveShots(ns), 1, "retry succeeds")
+    eq((ns.Passive.Timer()), "countdown", "new countdown")
+end)
+
 test("passive: timer kept after reload and next login, per character", function()
     local env, ns = start()
     env.advance(20 * MIN)
@@ -765,7 +775,7 @@ end)
 test("every L.KEY used in code exists in enUS", function()
     local _, ns = start()
     local files = { "Core/Commands.lua", "Core/Events.lua", "Modules/History.lua", "Modules/Notifications.lua",
-                    "Modules/Passive.lua",
+                    "Modules/Passive.lua", "Modules/Activity.lua", "Modules/Locations.lua",
                     "UI/Main.lua", "UI/Capture.lua", "UI/History.lua", "UI/Settings.lua", "UI/Minimap.lua" }
     for _, file in ipairs(files) do
         local text = assert(io.open(file)):read("*a")
@@ -773,6 +783,137 @@ test("every L.KEY used in code exists in enUS", function()
             eq(ns.locales.enUS[key] ~= nil, true, file .. ": L." .. key)
         end
     end
+end)
+
+---------------------------------------------------------------------------
+-- Playtime (shared clock of active play)
+---------------------------------------------------------------------------
+test("playtime: counts active play only; independent of auto capture", function()
+    local env, ns = start()
+    env.advance(10 * MIN)
+    near(ns.Activity.Today(), 10 * MIN, 1.01, "ten minutes")
+    ns.Engine.SetEnabled(false)
+    ns.db.settings.passive = false
+    env.advance(5 * MIN)
+    near(ns.Activity.Today(), 15 * MIN, 1.01, "pause and passive off do not stop it")
+    local before = ns.Activity.Today()
+    env.afk = true
+    env.advance(30 * MIN)
+    eq(ns.Activity.Today(), before, "AFK not counted")
+    env.afk = false
+    env.fire("PLAYER_LEAVING_WORLD")
+    env.advance(30 * MIN)
+    eq(ns.Activity.Today(), before, "loading screen not counted")
+    env.fire("PLAYER_ENTERING_WORLD")
+    env.advance(60)
+    near(ns.Activity.Today(), before + 60, 1.01, "counting resumes")
+end)
+
+test("playtime: one shared clock drives playtime and the passive timer", function()
+    local env, ns = start()
+    eq(ns.Passive.Start, nil, "passive has no ticker of its own")
+    eq(ns.Util.Contains(ns.Activity.listeners, ns.Passive.Update), true, "passive listens to the clock")
+    env.advance(7 * MIN)
+    near(ns.character.passive.elapsed, ns.Activity.Today(), 1.01, "same seconds")
+end)
+
+test("playtime: format 3h 42m / 3 ч 42 мин", function()
+    local _, ns = start()
+    eq(ns.UI.FormatDuration(3 * 3600 + 42 * 60 + 59), "3h 42m", "hours and minutes")
+    eq(ns.UI.FormatDuration(42 * 60), "42m", "under an hour")
+    eq(ns.UI.FormatDuration(0), "0m", "zero")
+    local _, ru = start({ locale = "ruRU" })
+    eq(ru.UI.FormatDuration(3 * 3600 + 42 * 60), "3 ч 42 мин", "russian")
+end)
+
+test("playtime: midnight starts a new day; kept after reload; per character", function()
+    local midnight = os.time({ year = 2026, month = 11, day = 25, hour = 0 })
+    local env = Mock.new()
+    env.unix = midnight - 30
+    local ns = env.login(".")
+    env.advance(90)
+    local days = ns.character.playtime.days
+    near(days["2026-11-24"] or 0, 30, 2, "yesterday part")
+    near(days["2026-11-25"] or 0, 60, 2, "today part")
+    near(ns.Activity.Today(), 60, 2, "today starts from zero")
+    local saved = ns.db
+    local env2 = Mock.new({ savedDB = saved })
+    env2.unix = midnight + 60
+    local ns2 = env2.login(".")
+    near(ns2.Activity.Today(), 60, 2, "kept after reload")
+    env2.advance(60)
+    near(ns2.Activity.Today(), 120, 2, "continues")
+    local env3 = Mock.new({ savedDB = saved })
+    _G.UnitName = function() return "Alt" end
+    local ns3 = env3.login(".")
+    eq(ns3.Activity.Today(), 0, "another character starts at zero")
+    _G.UnitName = function() return "Nedisan" end
+end)
+
+---------------------------------------------------------------------------
+-- Locations
+---------------------------------------------------------------------------
+test("locations: today, lifetime and first visits from one source", function()
+    local env, ns = start()
+    eq(ns.Locations.Today(), 1, "login zone counts today")
+    eq(ns.Locations.Total(), 1, "one zone known")
+    env.mapID, env.zone = 52, "Westfall"
+    env.fire("ZONE_CHANGED_NEW_AREA")
+    env.advance(5)
+    env.mapID, env.zone = 37, "Elwynn Forest"
+    env.fire("ZONE_CHANGED_NEW_AREA")
+    env.advance(5)
+    eq(ns.Locations.Today(), 2, "two different zones, Elwynn not twice")
+    eq(ns.Locations.Total(), 2, "lifetime")
+    eq(#shots(ns), 1, "New zone event still once")
+    local today = ns.character.locations.days[ns.Util.DayKey(time())]
+    eq(today["map:52"].first, true, "Westfall: first visit")
+    eq(today["map:37"].first, nil, "login zone of a fresh install is not marked")
+    local rows = ns.Locations.Rows()
+    eq(rows[1].kind, "day", "day header") eq(rows[1].count, 2, "two zones")
+    eq(rows[2].entry.name, "Elwynn Forest", "latest first")
+end)
+
+test("locations: old visited zones count, a new day re-records the zone you stand in", function()
+    local midnight = os.time({ year = 2026, month = 11, day = 25, hour = 0 })
+    local env = Mock.new()
+    env.unix = midnight - 10
+    local ns = env.login(".")
+    ns.character.visited["map:1"] = true -- a zone from an earlier version
+    eq(ns.Locations.Total(), 2, "earlier zones are kept and counted")
+    env.advance(20)
+    eq(ns.Locations.OnDay("2026-11-24"), 1, "yesterday")
+    eq(ns.Locations.Today(), 1, "today without moving")
+end)
+
+test("history: days played from playtime, steps, screenshots and zones", function()
+    local _, ns = start()
+    local c = ns.character
+    c.steps.days["2026-11-01"] = 10
+    c.steps.days["2026-11-02"] = 0
+    c.shotsByDay["2026-11-01"] = 1
+    c.shotsByDay["2026-11-03"] = 2
+    c.playtime.days["2026-11-04"] = 30
+    eq(ns.Activity.DaysPlayed(), 4, "11-01, 11-03, 11-04 and today (login zone), 11-02 is empty")
+end)
+
+test("data from 0.7.0 is kept; new fields are added without a migration", function()
+    local _, ns = start()
+    local saved = ns.db
+    for _, c in pairs(saved.characters) do
+        c.playtime, c.locations = nil, nil
+        c.shots[#c.shots + 1] = { t = time(), ev = "LEVEL", info = 11 }
+        c.shotsTotal = 1
+        c.steps.total, c.steps.days[ns.Util.DayKey(time())] = 500, 500
+    end
+    saved.characters["Forever:Nedisan"].locations = { days = { bad = 5, ["2026-11-20"] = { x = 1 } } }
+    local env2 = Mock.new({ savedDB = saved })
+    local ns2 = env2.login(".")
+    eq(ns2.db.schemaVersion, 4, "same schema")
+    eq(ns2.History.Stats().total, 1, "shots kept") eq(ns2.Steps.Total(), 500, "steps kept")
+    eq(type(ns2.character.playtime.days), "table", "playtime added")
+    eq(ns2.Locations.OnDay("2026-11-20"), 0, "damaged entries removed")
+    noErrors(ns2)
 end)
 
 ---------------------------------------------------------------------------
@@ -820,26 +961,75 @@ test("window: four tabs, each builds and refreshes without errors", function()
     noErrors(ns)
 end)
 
-test("home: statistics cards, last shots, empty message and View all", function()
+test("home: daily adventure: date, four today cards, location, latest three of today", function()
     local env, ns = start()
     ns.UI.Toggle()
-    eq(hasText(env, "This character has no screenshots yet"), true, "empty message")
-    levelUp(env, 11)
-    env.advance(5)
+    eq(hasText(env, "Daily adventure"), true, "caption")
+    eq(hasText(env, ns.History.DateText(ns.Util.DayKey(time()))), true, "today's date")
+    eq(hasText(env, "No screenshots today yet"), true, "empty message")
+    for _, label in ipairs({ "Screenshots today", "Steps today", "Locations today", "Playtime today" }) do
+        eq(hasText(env, label), true, "card " .. label)
+    end
+    for _, gone in ipairs({ "Total distance", "Total screenshots" }) do
+        eq(hasText(env, gone), false, "not on Home: " .. gone)
+    end
+    eq(hasText(env, "Elwynn Forest"), true, "current location")
+    -- A shot of yesterday is not "today".
+    local old = { t = time() - 86400, ev = "DEATH", zone = "Duskwood" }
+    ns.character.shots[#ns.character.shots + 1] = old
+    ns.Database.CountShot(ns.character, old)
+    for level = 11, 15 do
+        levelUp(env, level)
+        env.advance(15)
+    end
     walk(env, 10, 7)
     ns.UI.ShowTab("home")
     eq(hasText(env, "Nedisan"), true, "character name")
-    eq(hasText(env, "Reached level 11"), true, "recent shot")
+    eq(hasText(env, "Reached level 15"), true, "newest shot")
+    eq(hasText(env, "Reached level 13"), true, "third shot")
+    eq(hasText(env, "Reached level 12"), false, "only three")
     eq(hasText(env, ns.Num(ns.Steps.Today())), true, "steps today")
-    eq(hasText(env, "Total distance"), true, "distance card")
-    eq(hasText(env, ns.Dec(ns.Steps.TotalThousands(), 2)), true, "distance value")
-    eq(hasText(env, "Zones"), false, "zones card removed")
+    eq(#ns.History.Today(3), 3, "three of today") eq(#ns.History.Today(10), 5, "yesterday not included")
     findButton(env, "Settings"):Click()
     ns.UI.ShowTab("home")
     for _, frame in ipairs(env.frames) do
-        if type(rawget(frame, "label")) == "table" and frame.label.text == "View all screenshots  >" then frame:Click() end
+        if type(rawget(frame, "label")) == "table" and frame.label.text == "View screenshot history  >" then frame:Click() end
     end
     eq(ns.UI.CurrentTab(), "history", "opens history")
+    noErrors(ns)
+end)
+
+test("home: passive countdown follows the real timer, MM:SS and every state", function()
+    local env, ns = start()
+    ns.UI.Toggle()
+    env.advance(10 * MIN)
+    local state, left, fraction = ns.Passive.Timer()
+    eq(state, "countdown", "counting") near(left, 20 * MIN, 1.01, "left")
+    near(fraction, 1 / 3, 0.01, "progress")
+    eq(hasText(env, ns.UI.FormatCountdown(left)), true, "MM:SS on Home")
+    eq(ns.UI.FormatCountdown(14 * 60 + 32), "14:32", "format")
+    eq(ns.UI.FormatCountdown(3600), "60:00", "a 60 min interval")
+    env.afk = true
+    env.advance(2)
+    local s, _, _, why = ns.Passive.Timer()
+    eq(s, "paused", "afk pauses") eq(why, "afk", "reason") eq(hasText(env, "AFK"), true, "AFK shown")
+    env.afk = false
+    ns.Engine.SetEnabled(false)
+    env.advance(2)
+    eq((ns.Passive.Timer()), "paused", "auto capture paused") eq(hasText(env, "Paused"), true, "Paused shown")
+    ns.Engine.SetEnabled(true)
+    ns.db.settings.passive = false
+    env.advance(2)
+    eq((ns.Passive.Timer()), "disabled", "off") eq(hasText(env, "Off"), true, "Off shown")
+    ns.db.settings.passive = true
+    env.combat = true
+    env.advance(21 * MIN)
+    eq((ns.Passive.Timer()), "waiting", "due in combat: waiting") eq(hasText(env, "Waiting"), true, "Waiting shown")
+    env.combat = false
+    env.advance(5)
+    eq((ns.Passive.Timer()), "countdown", "after the shot a new countdown")
+    eq(passiveShots(ns), 1, "one shot")
+    noErrors(ns)
 end)
 
 test("history: thousands of records use a few rows, grouped by day", function()
@@ -859,6 +1049,28 @@ test("history: thousands of records use a few rows, grouped by day", function()
     eq(rows[1].kind, "day", "first row is a day")
     eq(rows[2].record.t > rows[3].record.t, true, "newest first")
     findButton(env, "Steps"):Click()
+    noErrors(ns)
+end)
+
+test("history: lifetime dashboard stays visible over Screenshots, Steps and Locations", function()
+    local env, ns = start()
+    ns.character.steps.total, ns.character.steps.days[ns.Util.DayKey(time())] = 358724, 12458
+    env.mapID, env.zone = 52, "Westfall"
+    env.fire("ZONE_CHANGED_NEW_AREA")
+    env.advance(5)
+    ns.UI.Toggle("history", "shots")
+    eq(hasText(env, "Lifetime statistics"), true, "caption")
+    for _, sub in ipairs({ "Screenshots", "Steps", "Locations" }) do
+        findButton(env, sub):Click()
+        for _, label in ipairs({ "Total screenshots", "Total steps", "Locations visited", "Days played" }) do
+            eq(hasText(env, label), true, sub .. ": card " .. label)
+        end
+        eq(hasText(env, "358,724"), true, sub .. ": total steps value")
+    end
+    eq(hasText(env, "Westfall"), true, "locations list")
+    eq(hasText(env, "First visit"), true, "first visit mark")
+    eq(hasText(env, "2 locations"), true, "count of the day")
+    eq(findButton(env, "Home") ~= nil, true, "still four main tabs")
     noErrors(ns)
 end)
 

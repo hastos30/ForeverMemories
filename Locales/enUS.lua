@@ -14,17 +14,22 @@ ns.locales.enUS = {
     TIP_RESUME = "Automatic screenshots start again.",
     CLOSE = "Close", TIP_CLOSE = "Closes the window. /fm or the minimap button opens it again.",
 
-    -- Home
-    CURRENT_CHARACTER_STATS = "Statistics of the current character",
-    STAT_TOTAL = "Total screenshots", STAT_TODAY = "Screenshots today", STAT_DISTANCE = "Total distance",
-    STAT_STEPS_TODAY = "Steps today",
-    TIP_STAT_TOTAL = "Screenshots this character has saved since the addon was installed.",
+    -- Home: Daily adventure
+    DAILY_ADVENTURE = "Daily adventure",
+    STAT_TODAY = "Screenshots today", STAT_STEPS_TODAY = "Steps today",
+    STAT_ZONES_TODAY = "Locations today", STAT_PLAYTIME_TODAY = "Playtime today",
     TIP_STAT_TODAY = "Screenshots saved today (since midnight, your computer's time).",
-    TIP_STAT_DISTANCE = "All steps this character has walked, in thousands: 1.00 = 1,000 steps. An estimate, counted from the moment the step counter was installed.",
+    TIP_STAT_ZONES_TODAY = "Different zones this character has been in today.",
+    TIP_STAT_PLAYTIME_TODAY = "Active play today. Time spent AFK, on loading screens and outside the game is not counted. A new day starts at midnight, your computer's time.",
+    DURATION_HM = "%dh %dm", DURATION_M = "%dm",
     STEPS_NOTE = "The number of steps is an estimate based on the character's movement.",
-    RECENT_SHOTS = "Recent screenshots",
-    NO_SHOTS_YET = "This character has no screenshots yet",
-    VIEW_ALL_SHOTS = "View all screenshots  >",
+    CURRENT_LOCATION = "Current location", UNKNOWN_LOCATION = "Unknown",
+    NEXT_PASSIVE = "Next passive screenshot",
+    TIP_NEXT_PASSIVE = "Time of active play left until the next passive screenshot. It is the real timer of passive capture (Auto capture tab).",
+    TIMER_DISABLED = "Off", TIMER_PAUSED = "Paused", TIMER_AFK = "AFK", TIMER_WAITING = "Waiting",
+    LATEST_SHOTS = "Latest screenshots",
+    NO_SHOTS_TODAY = "No screenshots today yet",
+    VIEW_SHOT_HISTORY = "View screenshot history  >",
 
     -- Auto capture
     HOW_TO_SHOOT = "How to take screenshots", WHEN_TO_SHOOT = "When to take screenshots",
@@ -65,11 +70,20 @@ ns.locales.enUS = {
     TIP_PASSIVE = "After every chosen interval of active play, one screenshot is taken in the chosen mode, independently of the events above. Time spent AFK, on loading screens, while auto capture is paused and outside the game is not counted. In combat the shot waits until combat ends. Each character has its own timer, kept between sessions.",
     TIP_PASSIVE_INTERVAL = "Minutes of active play between passive screenshots. Changing the interval restarts the count.",
 
-    -- History
-    SUB_SHOTS = "Screenshots", SUB_STEPS = "Steps",
+    -- History: Lifetime statistics
+    LIFETIME_STATS = "Lifetime statistics",
+    STAT_TOTAL = "Total screenshots", TOTAL_STEPS = "Total steps",
+    STAT_ZONES_TOTAL = "Locations visited", STAT_DAYS_PLAYED = "Days played",
+    TIP_STAT_TOTAL = "Screenshots this character has saved since the addon was installed.",
+    TIP_STAT_ZONES_TOTAL = "Different zones this character has ever visited (since the addon was installed).",
+    TIP_STAT_DAYS_PLAYED = "Calendar days on which this character played, walked, took screenshots or visited zones.",
+    SUB_SHOTS = "Screenshots", SUB_STEPS = "Steps", SUB_ZONES = "Locations",
+    NO_SHOTS_YET = "This character has no screenshots yet",
     SCREENSHOTS_FOLDER_NOTE = "Screenshots are saved in the game's Screenshots folder.",
-    TOTAL_STEPS = "Total steps", LAST_7_DAYS = "Last 7 days", STEPS_HISTORY = "Steps by day",
+    LAST_7_DAYS = "Last 7 days",
     NO_STEPS_YET = "No steps recorded yet",
+    NO_ZONES_YET = "No locations recorded yet",
+    FIRST_VISIT = "First visit",
     TODAY = "Today",
     DATE_FORMAT = "%d %s",
     MONTH_1 = "January", MONTH_2 = "February", MONTH_3 = "March", MONTH_4 = "April",
@@ -77,6 +91,7 @@ ns.locales.enUS = {
     MONTH_9 = "September", MONTH_10 = "October", MONTH_11 = "November", MONTH_12 = "December",
     SHOTS_one = "screenshot", SHOTS_many = "screenshots",
     STEPS_one = "step", STEPS_many = "steps",
+    ZONES_one = "location", ZONES_many = "locations",
 
     -- Settings
     GENERAL_SETTINGS = "General settings",

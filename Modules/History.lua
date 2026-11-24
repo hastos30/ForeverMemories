@@ -82,6 +82,20 @@ function History.Recent(count)
     return result
 end
 
+-- Up to `count` newest records of today, newest first (Home).
+function History.Today(count)
+    local result = {}
+    local shots = ns.character and ns.character.shots or {}
+    local today = ns.Util.DayKey(ns.API.Time())
+    for i = #shots, 1, -1 do
+        if #result >= count or ns.Util.DayKey(shots[i].t) ~= today then
+            break
+        end
+        result[#result + 1] = shots[i]
+    end
+    return result
+end
+
 -- Flat list for the history view, newest first:
 --   { kind = "day", day = "2026-11-24", count = n } followed by
 --   { kind = "shot", record = record } rows of that day.
@@ -130,14 +144,19 @@ function History.Detail(record)
     return table.concat(parts, "  ·  ")
 end
 
--- "24 November", "24 ноября"; with " · Today" for the current day.
-function History.DayLabel(day)
+-- "24 November", "24 ноября".
+function History.DateText(day)
     local start = ns.Util.DayStart(day)
     if not start then
         return tostring(day)
     end
     local d = date("*t", start)
-    local text = string.format(L.DATE_FORMAT, d.day, L["MONTH_" .. d.month])
+    return string.format(L.DATE_FORMAT, d.day, L["MONTH_" .. d.month])
+end
+
+-- The same with " · Today" for the current day.
+function History.DayLabel(day)
+    local text = History.DateText(day)
     if day == ns.Util.DayKey(ns.API.Time()) then
         text = text .. "  ·  " .. L.TODAY
     end

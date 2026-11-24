@@ -21,6 +21,9 @@
 --   passive = { elapsed = seconds of active play, interval = minutes it
 --               was counted for },  (v0.6.0; added by validation, no
 --               migration needed)
+--   playtime = { total = seconds, days = { ["2026-11-24"] = seconds } },
+--   locations = { days = { ["2026-11-24"] = { [zoneKey] = { name, t, first } } } },
+--               (v0.8.0; both added by validation, no migration needed)
 -- }
 local _, ns = ...
 
@@ -68,6 +71,8 @@ local function newCharacter(key)
         visited = {},
         steps = { total = 0, days = {} },
         passive = { elapsed = 0 },
+        playtime = { total = 0, days = {} },
+        locations = { days = {} },
     }
 end
 
@@ -311,6 +316,32 @@ local function validateCharacter(character, path, repaired)
     end
     if type(passive.interval) ~= "number" then
         passive.interval = nil -- the timer sets it and starts from zero
+    end
+    local playtime = tableOf(character, "playtime", repaired, path .. ".playtime")
+    if not number(playtime.total) then
+        playtime.total = 0
+    end
+    local played = tableOf(playtime, "days", repaired, path .. ".playtime.days")
+    for key, value in pairs(played) do
+        if type(key) ~= "string" or not number(value) then
+            played[key] = nil
+            repaired[#repaired + 1] = path .. ".playtime.days." .. tostring(key)
+        end
+    end
+    local locations = tableOf(character, "locations", repaired, path .. ".locations")
+    local visits = tableOf(locations, "days", repaired, path .. ".locations.days")
+    for day, zones in pairs(visits) do
+        if type(day) ~= "string" or type(zones) ~= "table" then
+            visits[day] = nil
+            repaired[#repaired + 1] = path .. ".locations.days." .. tostring(day)
+        else
+            for key, entry in pairs(zones) do
+                if type(entry) ~= "table" or type(entry.t) ~= "number" or type(entry.name) ~= "string" then
+                    zones[key] = nil
+                    repaired[#repaired + 1] = path .. ".locations.days." .. day .. "." .. tostring(key)
+                end
+            end
+        end
     end
 end
 

@@ -113,21 +113,14 @@ local function onSystemMessage(_, text)
 end
 
 ---------------------------------------------------------------------------
--- Zone: first visit per character, by stable map ID.
+-- Zone: first visit per character, by stable map ID. The visit itself is
+-- recorded by Modules/Locations.lua (also for Home and History).
 ---------------------------------------------------------------------------
 function Events.CheckZone()
-    local character = ns.character
-    local key = API.ZoneKey()
-    if not character or not key or character.visited[key] then
-        return
+    local key, isNew = ns.Locations.Visit()
+    if isNew then
+        emit("ZONE", key, nil)
     end
-    character.visited[key] = true
-    if not character.zonesSeeded then
-        -- Fresh install: the zone you are standing in is not a new memory.
-        character.zonesSeeded = true
-        return
-    end
-    emit("ZONE", key, nil)
 end
 
 ---------------------------------------------------------------------------

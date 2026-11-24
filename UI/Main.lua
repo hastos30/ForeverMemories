@@ -122,14 +122,24 @@ function UI.Refresh()
     end
 end
 
--- Cheap update for the step counter: only the numbers that show it.
-function UI.RefreshSteps()
+-- Cheap partial updates of the open tab: `method` is "RefreshSteps"
+-- (whole step changed) or "RefreshClock" (every second: playtime, zone,
+-- passive countdown). Nothing is drawn while the window is closed.
+local function refreshPart(method)
     if window and window:IsShown() then
         local view = currentTab and tabs[currentTab].view
-        if view and view.RefreshSteps then
-            ns.SafeCall("steps " .. currentTab, view.RefreshSteps)
+        if view and view[method] then
+            ns.SafeCall(method .. " " .. currentTab, view[method])
         end
     end
+end
+
+function UI.RefreshSteps()
+    refreshPart("RefreshSteps")
+end
+
+function UI.RefreshClock()
+    refreshPart("RefreshClock")
 end
 
 ---------------------------------------------------------------------------
@@ -247,6 +257,7 @@ end
 table.insert(ns.History.listeners, UI.Refresh)
 table.insert(ns.Engine.stateListeners, UI.Refresh)
 table.insert(ns.Steps.listeners, UI.RefreshSteps)
+table.insert(ns.Activity.listeners, UI.RefreshClock) -- no own timer
 
 -- Asks before reloading the interface. The setting is already saved:
 -- "Later" keeps it, and it applies at the next /reload or login.
@@ -270,7 +281,7 @@ function UI.ConfirmReload(text)
 end
 
 ---------------------------------------------------------------------------
--- Home tab: current character, four statistics cards, last five shots.
+-- Shared pieces of Home and History.
 ---------------------------------------------------------------------------
 
 -- Row of a shot (also used by the History tab).
@@ -309,78 +320,185 @@ function UI.SetClassIcon(texture)
     end
 end
 
-local function statCard(parent, icon, label, tip)
+-- One statistics card (Home and History dashboards).
+local CARD_HEIGHT = 80
+local CARD_GAP = 8
+
+function UI.StatCard(parent, icon, label, tip)
     local card = W.Panel(parent, W.COLORS.panel, W.COLORS.divider)
-    card:SetSize((UI.CONTENT_WIDTH - 8) / 2, 92)
-    local image = W.Icon(card, icon, 22)
-    image:SetPoint("TOP", 0, -10)
+    card:SetSize((UI.CONTENT_WIDTH - CARD_GAP) / 2, CARD_HEIGHT)
+    local image = W.Icon(card, icon, 18)
+    image:SetPoint("TOP", 0, -9)
     card.value = W.Text(card, "0", "GameFontNormalHuge", W.COLORS.heading)
-    card.value:SetPoint("TOP", image, "BOTTOM", 0, -6)
+    card.value:SetPoint("TOP", image, "BOTTOM", 0, -5)
     card.value:SetJustifyH("CENTER")
     local caption = W.Text(card, label, "GameFontHighlightSmall", W.COLORS.muted)
-    caption:SetPoint("BOTTOM", 0, 10)
+    caption:SetPoint("BOTTOM", 0, 8)
     caption:SetJustifyH("CENTER")
     W.Tooltip(card, tip, label)
     return card
 end
 
-UI.builders.home = function(parent)
+-- Four cards in a 2 x 2 grid starting `top` pixels below the parent's top.
+-- `specs` = { { id, icon, label, tip }, ... } in reading order.
+-- Returns the cards by id and the y offset right below the grid.
+function UI.Dashboard(parent, top, specs)
+    local cards = {}
+    for i, spec in ipairs(specs) do
+        local card = UI.StatCard(parent, spec[2], spec[3], spec[4])
+        local row = math.floor((i - 1) / 2)
+        card:SetPoint(i % 2 == 1 and "TOPLEFT" or "TOPRIGHT", 0, -top - row * (CARD_HEIGHT + CARD_GAP))
+        cards[spec[1]] = card
+    end
+    return cards, top + 2 * CARD_HEIGHT + CARD_GAP
+end
+
+-- Character line: class icon, name, caption under the name.
+function UI.CharacterHeader(parent, captionText)
     local portrait = parent:CreateTexture(nil, "ARTWORK")
-    portrait:SetSize(40, 40)
+    portrait:SetSize(36, 36)
     portrait:SetPoint("TOPLEFT", 0, 0)
     local name = W.Text(parent, "", "GameFontNormalLarge", W.COLORS.heading)
-    name:SetPoint("TOPLEFT", portrait, "TOPRIGHT", 12, -3)
-    local caption = W.Text(parent, L.CURRENT_CHARACTER_STATS, "GameFontHighlightSmall", W.COLORS.muted)
-    caption:SetPoint("BOTTOMLEFT", portrait, "BOTTOMRIGHT", 12, 3)
+    name:SetPoint("TOPLEFT", portrait, "TOPRIGHT", 10, -2)
+    local caption = W.Text(parent, captionText, "GameFontHighlightSmall", W.COLORS.muted)
+    caption:SetPoint("BOTTOMLEFT", portrait, "BOTTOMRIGHT", 10, 2)
+    return function()
+        UI.SetClassIcon(portrait)
+        name:SetText(ns.character and ns.character.name or "?")
+    end
+end
 
-    local cards = {
-        total = statCard(parent, "Interface\\Icons\\INV_Misc_Spyglass_03", L.STAT_TOTAL, L.TIP_STAT_TOTAL),
-        today = statCard(parent, "Interface\\Icons\\INV_Misc_PocketWatch_01", L.STAT_TODAY, L.TIP_STAT_TODAY),
-        distance = statCard(parent, "Interface\\Icons\\INV_Misc_Map_01", L.STAT_DISTANCE, L.TIP_STAT_DISTANCE),
-        steps = statCard(parent, "Interface\\Icons\\Ability_Rogue_Sprint", L.STAT_STEPS_TODAY, L.STEPS_NOTE),
-    }
-    cards.total:SetPoint("TOPLEFT", 0, -50)
-    cards.today:SetPoint("TOPRIGHT", 0, -50)
-    cards.distance:SetPoint("TOPLEFT", 0, -150)
-    cards.steps:SetPoint("TOPRIGHT", 0, -150)
+-- "3h 42m" / "3 ч 42 мин"; under an hour only minutes: "42m".
+function UI.FormatDuration(seconds)
+    local minutes = math.floor((seconds or 0) / 60)
+    local hours = math.floor(minutes / 60)
+    if hours > 0 then
+        return string.format(L.DURATION_HM, hours, minutes % 60)
+    end
+    return string.format(L.DURATION_M, minutes)
+end
 
-    local heading = W.Heading(parent, L.RECENT_SHOTS)
-    heading:SetPoint("TOPLEFT", 0, -254)
+-- "14:32": minutes and seconds left (minutes may exceed 59 for 60 min).
+function UI.FormatCountdown(seconds)
+    seconds = math.max(0, math.ceil(seconds or 0))
+    return string.format("%02d:%02d", math.floor(seconds / 60), seconds % 60)
+end
+
+---------------------------------------------------------------------------
+-- Home: Daily adventure (v0.8.0). Only today of the current character.
+---------------------------------------------------------------------------
+local LATEST = 3
+
+-- Countdown text and color for each state of the passive timer.
+local function timerView(state, left, extra)
+    if state == "countdown" then
+        return UI.FormatCountdown(left), W.COLORS.heading
+    elseif state == "waiting" then
+        return L.TIMER_WAITING, W.COLORS.heading
+    elseif state == "paused" then
+        return extra == "afk" and L.TIMER_AFK or L.TIMER_PAUSED, W.COLORS.paused
+    end
+    return L.TIMER_DISABLED, W.COLORS.paused
+end
+
+UI.builders.home = function(parent)
+    local refreshHeader = UI.CharacterHeader(parent, L.DAILY_ADVENTURE)
+    local today = W.Text(parent, "", "GameFontHighlight", W.COLORS.text)
+    today:SetPoint("TOPRIGHT", 0, -10)
+    today:SetJustifyH("RIGHT")
+
+    local cards, y = UI.Dashboard(parent, 46, {
+        { "shots", "Interface\\Icons\\INV_Misc_Spyglass_03", L.STAT_TODAY, L.TIP_STAT_TODAY },
+        { "steps", "Interface\\Icons\\Ability_Rogue_Sprint", L.STAT_STEPS_TODAY, L.STEPS_NOTE },
+        { "zones", "Interface\\Icons\\INV_Misc_Map_01", L.STAT_ZONES_TODAY, L.TIP_STAT_ZONES_TODAY },
+        { "playtime", "Interface\\Icons\\INV_Misc_PocketWatch_01", L.STAT_PLAYTIME_TODAY, L.TIP_STAT_PLAYTIME_TODAY },
+    })
+
+    -- Current location and the passive countdown.
+    local box = W.Panel(parent, W.COLORS.panel, W.COLORS.divider)
+    box:SetSize(UI.CONTENT_WIDTH, 96)
+    box:SetPoint("TOPLEFT", 0, -(y + 10))
+    local pin = W.Icon(box, "Interface\\Icons\\INV_Misc_Map_01", 18)
+    pin:SetPoint("TOPLEFT", 12, -14)
+    local zoneLabel = W.Text(box, L.CURRENT_LOCATION, "GameFontHighlightSmall", W.COLORS.muted)
+    zoneLabel:SetPoint("TOPLEFT", pin, "TOPRIGHT", 10, 3)
+    local zone = W.Text(box, "", "GameFontHighlight", W.COLORS.text)
+    zone:SetPoint("BOTTOMLEFT", pin, "BOTTOMRIGHT", 10, -4)
+    zone:SetPoint("RIGHT", box, "RIGHT", -12, 0)
+    local line = W.Divider(box)
+    line:SetPoint("TOPLEFT", 12, -46)
+    line:SetPoint("TOPRIGHT", -12, -46)
+    local clock = W.Icon(box, "Interface\\Icons\\INV_Misc_PocketWatch_01", 16)
+    clock:SetPoint("TOPLEFT", 13, -56)
+    local timerLabel = W.Text(box, L.NEXT_PASSIVE, "GameFontHighlight", W.COLORS.text)
+    timerLabel:SetPoint("LEFT", clock, "RIGHT", 10, 0)
+    local timer = W.Text(box, "", "GameFontNormal", W.COLORS.heading)
+    timer:SetPoint("RIGHT", box, "RIGHT", -12, 0)
+    timer:SetPoint("TOP", clock, "TOP", 0, 0)
+    timer:SetJustifyH("RIGHT")
+    local track = box:CreateTexture(nil, "ARTWORK")
+    local trackWidth = UI.CONTENT_WIDTH - 24
+    track:SetSize(trackWidth, 3)
+    track:SetPoint("BOTTOMLEFT", 12, 12)
+    local d = W.COLORS.divider
+    track:SetColorTexture(d[1], d[2], d[3], 1)
+    local fill = box:CreateTexture(nil, "OVERLAY")
+    fill:SetHeight(3)
+    fill:SetPoint("BOTTOMLEFT", 12, 12)
+    local g = W.COLORS.gold
+    fill:SetColorTexture(g[1], g[2], g[3], 1)
+    W.Tooltip(box, L.TIP_NEXT_PASSIVE, L.NEXT_PASSIVE)
+
+    -- Latest screenshots of today.
+    local listTop = y + 10 + 96 + 14
+    local heading = W.Heading(parent, L.LATEST_SHOTS)
+    heading:SetPoint("TOPLEFT", 0, -listTop)
     local rows = {}
-    for i = 1, 5 do
+    for i = 1, LATEST do
         local row = UI.MakeShotRow(parent, 28)
         row:SetSize(UI.CONTENT_WIDTH, 32)
-        row:SetPoint("TOPLEFT", 0, -280 - (i - 1) * 36)
+        row:SetPoint("TOPLEFT", 0, -(listTop + 26) - (i - 1) * 36)
         rows[i] = row
     end
-    local empty = W.Text(parent, L.NO_SHOTS_YET, "GameFontHighlight", W.COLORS.muted)
-    empty:SetPoint("TOPLEFT", 0, -290)
-    local all = W.Link(parent, L.VIEW_ALL_SHOTS, function() UI.ShowTab("history", "shots") end)
+    local empty = W.Text(parent, L.NO_SHOTS_TODAY, "GameFontHighlight", W.COLORS.muted)
+    empty:SetPoint("TOPLEFT", 0, -(listTop + 34))
+    local all = W.Link(parent, L.VIEW_SHOT_HISTORY, function() UI.ShowTab("history", "shots") end)
     all:SetPoint("BOTTOM", 0, 0)
 
     local function refreshSteps()
         cards.steps.value:SetText(ns.Num(ns.Steps.Today()))
-        cards.distance.value:SetText(ns.Dec(ns.Steps.TotalThousands(), 2))
+    end
+    -- Every second while Home is open (driven by the shared clock).
+    local function refreshClock()
+        cards.playtime.value:SetText(UI.FormatDuration(ns.Activity.Today()))
+        cards.zones.value:SetText(ns.Num(ns.Locations.Today()))
+        zone:SetText(ns.API.ZoneName() or L.UNKNOWN_LOCATION)
+        local state, left, fraction, extra = ns.Passive.Timer()
+        local text, color = timerView(state, left, extra)
+        timer:SetText(text)
+        timer:SetTextColor(color[1], color[2], color[3])
+        fill:SetWidth(math.max(1, trackWidth * fraction))
+        fill:SetShown(fraction > 0 and state ~= "disabled")
     end
     return {
         RefreshSteps = refreshSteps,
+        RefreshClock = refreshClock,
         Refresh = function()
-            UI.SetClassIcon(portrait)
-            name:SetText(ns.character and ns.character.name or "?")
-            local s = ns.History.Stats()
-            cards.total.value:SetText(ns.Num(s.total))
-            cards.today.value:SetText(ns.Num(s.today))
+            refreshHeader()
+            today:SetText(ns.History.DateText(ns.Util.DayKey(ns.API.Time())))
+            cards.shots.value:SetText(ns.Num(ns.History.Stats().today))
             refreshSteps()
-            local recent = ns.History.Recent(5)
+            refreshClock()
+            local latest = ns.History.Today(LATEST)
             for i, row in ipairs(rows) do
-                if recent[i] then
-                    UI.FillShotRow(row, recent[i], true)
+                if latest[i] then
+                    UI.FillShotRow(row, latest[i], false)
                     row:Show()
                 else
                     row:Hide()
                 end
             end
-            empty:SetShown(#recent == 0)
+            empty:SetShown(#latest == 0)
         end,
     }
 end

@@ -29,7 +29,9 @@ ForeverMemories/
 | Engine | Один активный запрос, один снимок; подтверждение по SCREENSHOT_SUCCEEDED; лимиты 60/час и 300/сессию. |
 | History | Записи и счётчики снимков текущего персонажа; тексты записей. |
 | Steps | Шагомер: свой таймер 0,5 с, независим от Engine. |
-| Passive | Пассивная съёмка (v0.6.0): таймер 1 с считает активное время персонажа и, когда интервал набран и нет боя, отдаёт в Engine запрос `PASSIVE`. Своего кода съёмки нет. |
+| Activity | Общие часы активной игры (v0.8.0): один таймер 1 с; «активно» = в мире и не AFK. Копит время в игре по дням (Playtime) и раздаёт секунды слушателям: Passive, Locations (смена дня), UI (перерисовка Главной). |
+| Locations | Посещённые зоны (`visited`) и лог зон по дням; первое посещение для события ZONE. |
+| Passive | Пассивная съёмка (v0.6.0): получает секунды от Activity, считает их, пока галочка включена и автосъёмка не на паузе; когда интервал набран и нет боя, отдаёт в Engine запрос `PASSIVE`. `Passive.Timer()` — состояние для Главной. Своего таймера и кода съёмки нет. |
 | Notifications | Тост и строка в чате после сохранённого снимка. |
 | UI | Только отображение. Снимки — через `Engine.ManualShot`. |
 
@@ -39,8 +41,8 @@ ForeverMemories/
 
 ## 3. Поток снимка
 ```
-событие клиента → Events ─┐
-таймер Passive (интервал) ─┴→ Engine.Submit → Rules.Evaluate → Queue.Push
+событие клиента → Events ─────────┐
+часы Activity → Passive (интервал) ┴→ Engine.Submit → Rules.Evaluate → Queue.Push
   → (задержка события) → Engine: PREPARING (UIState.Prepare) → CAPTURING (Screenshot)
   → WAIT_RESULT → SCREENSHOT_SUCCEEDED → History.AddShot → Notifications
                  → FAILED / таймаут 5 с → в лог, счётчики не меняются
@@ -79,7 +81,9 @@ ForeverMemoriesDB = {
       shotsTotal, shotsByDay = { ["2026-11-24"] = n }, shotZones = { [зона] = true },
       visited = { [ключ зоны] = true }, zonesSeeded, guild,
       steps = { total, days = { ["2026-11-24"] = x }, since },
-      passive = { elapsed = секунды активной игры, interval = минуты } } },  -- v0.6.0
+      passive = { elapsed = секунды активной игры, interval = минуты },  -- v0.6.0
+      playtime = { total, days = { ["2026-11-24"] = секунды } },        -- v0.8.0
+      locations = { days = { ["2026-11-24"] = { [ключ зоны] = { name, t, first } } } } } },  -- v0.8.0
   legacy = { записи 0.4.2 без владельца },
 }
 ```
