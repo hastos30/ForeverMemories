@@ -1,0 +1,13 @@
+## Interface: 16001
+## Title: ForeverMemories
+## Notes: v0.0.1 spike: manual screenshot and API probe for World of Warcraft: Forever.
+## Version: 0.0.1
+## SavedVariables: ForeverMemoriesDB
+
+Core\API.lua
+Core\Logger.lua
+Core\Database.lua
+Core\Init.lua
+Spike\Probe.lua
+Spike\ManualShot.lua
+Core\Commands.lua
