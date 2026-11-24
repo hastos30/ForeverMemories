@@ -76,8 +76,25 @@
 | S1 | Аддон виден в списке и загружается без «устарел» | нет ошибок Lua | PASS | список аддонов, `/fm debug`; Lua Warning относится к другому аддону (Trailsmith) |
 | S2 | `/fm shot` вне боя | статус `success`, новый файл в `Screenshots` | PASS | `Shot #1` 15:46:09 → `WoWScrnShot_112426_154609.jpg` (540 981 байт) |
 | S3 | `/fm shot` в бою | кадр есть или понятная причина | PASS | `#2` 15:47:20, combat=true → `WoWScrnShot_112426_154720.jpg` (628 677 байт) |
-| S4 | 5 раз `/fm shot` подряд (по одному после ответа) | 5 файлов, 5 записей `success` | PENDING | |
+| S4 | 5 раз `/fm shot` подряд (по одному после ответа) | 5 файлов, 5 записей `success` | PASS | снимки #1–#5 все `success` (за несколько сессий, не строго подряд) |
 | S5 | `/fm shot` дважды очень быстро (макрос) | второй — `busy`, один файл | PASS | 2 запуска макроса: `skipped: busy (WAIT_RESULT)` + `Shot #3/#4: success`; файлы по словам тестировщика «всё ок» |
 | S6 | Нативный Print Screen | в `/fm status` растёт `unattributed`, записи нет | PASS | 6 нажатий = 6 файлов = `unattributed 6`, новых записей нет; один снимок даёт один сигнал |
 | S7 | `/reload`, затем `/fm status` | `loads` вырос на 1, история сохранена | PASS | `loads` 3 → 4, записи #1 и #2 на месте |
 | S8 | Полный выход из игры и вход | история сохранена | PASS | после перезахода нумерация продолжилась: `Shot #5` (счётчик `nextShotId` восстановлен из SavedVariables) |
+
+## События и API версии 0.4.0-beta (в клиенте не проверены)
+
+Регистрация проверяется автоматически: если клиент не знает событие, триггер показывается как «недоступно» (вкладка «Диагностика»).
+
+| Триггер | Событие / API | Регистрация | Срабатывание |
+|---|---|---|---|
+| MOUNT | `NEW_MOUNT_ADDED` | PENDING | PENDING |
+| DUNGEON | `LFG_COMPLETION_REWARD` (только подземелья через поиск группы) | PENDING | PENDING |
+| DUEL | `CHAT_MSG_SYSTEM` + `DUEL_WINNER_KNOCKOUT` / `DUEL_WINNER_RETREAT` | PENDING | PENDING |
+| QUEST | `QUEST_TURNED_IN` | PENDING | PENDING |
+| GUILD | `PLAYER_GUILD_UPDATE` + `IsInGuild()` | PENDING | PENDING |
+| FORM | `UPDATE_SHAPESHIFT_FORMS` + `GetNumShapeshiftForms()` | PENDING | PENDING |
+| LOOT_* | `CHAT_MSG_LOOT` + `LOOT_ITEM_SELF*`, `C_Item.GetItemQualityByID` | PASS (v0.0.1) | PENDING |
+| clean | `UIParent:Hide()/Show()`, показ UI в `PLAYER_REGEN_DISABLED` | — | PENDING |
+| Journey | `C_Timer.NewTicker`, `C_Map.GetPlayerMapPosition`, `UnitIsAFK` | PASS (функции есть) | PENDING |
+| Options | `Settings.RegisterCanvasLayoutCategory`, `AddonCompartmentFunc` | PENDING | PENDING |

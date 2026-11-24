@@ -1,0 +1,8 @@
+<Bindings>
+	<Binding name="FOREVERMEMORIES_SHOT" header="FOREVERMEMORIES" category="ADDONS">
+		ForeverMemories_ManualShot()
+	</Binding>
+	<Binding name="FOREVERMEMORIES_TOGGLE" category="ADDONS">
+		ForeverMemories_ToggleWindow()
+	</Binding>
+</Bindings>

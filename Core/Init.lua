@@ -1,16 +1,22 @@
 -- Core/Init.lua
--- Namespace, the single event dispatcher, and SavedVariables loading.
+-- Namespace, the single event dispatcher, localization and startup order.
 local addonName, ns = ...
 
 ns.name = addonName
-ns.version = "0.0.1"
+ns.version = "0.4.0-beta"
 
--- One frame receives every event and hands it to subscribed functions.
+-- Our own frames (window, panels). They are hidden while a screenshot is
+-- taken so they never appear in a memory.
+ns.ownFrames = {}
+
+---------------------------------------------------------------------------
+-- Event dispatcher: one frame receives every event.
+---------------------------------------------------------------------------
 local dispatcher = CreateFrame("Frame")
 local handlers = {}
 
--- Subscribes `callback(event, ...)` to an event.
--- Returns true, or false plus a reason when the client rejects the event.
+-- Subscribes `callback(event, ...)`. Returns true, or false plus a reason
+-- when the client rejects the event (unknown in this build).
 function ns.On(event, callback)
     if not handlers[event] then
         local ok, reason = ns.API.RegisterFrameEvent(dispatcher, event)
@@ -24,18 +30,51 @@ function ns.On(event, callback)
     return true
 end
 
+-- Runs a function and logs instead of breaking the whole addon on error.
+function ns.SafeCall(label, fn, ...)
+    local ok, err = pcall(fn, ...)
+    if not ok then
+        ns.Logger.Error(label .. ": " .. tostring(err))
+    end
+    return ok
+end
+
 dispatcher:SetScript("OnEvent", function(_, event, ...)
     local list = handlers[event]
     if not list then
         return
     end
     for i = 1, #list do
-        list[i](event, ...)
+        ns.SafeCall(event, list[i], event, ...)
     end
 end)
 
--- Modules add functions here; they run once the saved data is ready.
+---------------------------------------------------------------------------
+-- Localization: Locales/*.lua fill ns.locales; ns.L falls back to English,
+-- then to the key itself, so a missing string never causes an error.
+---------------------------------------------------------------------------
+ns.locales = {}
+ns.L = setmetatable({}, {
+    __index = function(_, key)
+        local active = ns.activeLocale
+        local english = ns.locales.enUS
+        return (active and active[key]) or (english and english[key]) or key
+    end,
+})
+
+function ns.SetLocale(code)
+    if code == nil or code == "auto" then
+        code = ns.API.GetLocale()
+    end
+    ns.activeLocale = ns.locales[code] or ns.locales.enUS
+end
+
+---------------------------------------------------------------------------
+-- Startup: onReady runs when saved data is loaded, onLogin when the
+-- character is known (name, realm, level).
+---------------------------------------------------------------------------
 ns.onReady = {}
+ns.onLogin = {}
 
 ns.On("ADDON_LOADED", function(_, loadedName)
     if loadedName ~= addonName or ns.db then
@@ -44,11 +83,23 @@ ns.On("ADDON_LOADED", function(_, loadedName)
     local db, repaired = ns.Database.Load(ForeverMemoriesDB)
     ForeverMemoriesDB = db
     ns.db = db
+    ns.SetLocale(db.settings.locale)
     if #repaired > 0 then
         ns.Logger.Warn("Reset damaged saved data: " .. table.concat(repaired, ", "))
     end
-    ns.Logger.Info("Loaded v" .. ns.version .. ", load #" .. db.spike.loadCount)
+    ns.Logger.Info("Loaded v" .. ns.version)
     for i = 1, #ns.onReady do
-        ns.onReady[i]()
+        ns.SafeCall("onReady", ns.onReady[i])
+    end
+end)
+
+ns.On("PLAYER_LOGIN", function()
+    if not ns.db then
+        return
+    end
+    ns.characterKey = ns.API.CharacterKey()
+    ns.character = ns.Database.Character(ns.db, ns.characterKey)
+    for i = 1, #ns.onLogin do
+        ns.SafeCall("onLogin", ns.onLogin[i])
     end
 end)
