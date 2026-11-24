@@ -2,6 +2,17 @@
 
 Формат: [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии: [SemVer](https://semver.org/lang/ru/).
 
+## [0.8.2] — 2026-11-24 (в клиенте не проверено)
+
+### Changed
+- «Всё игровое время» в Истории берётся из игры (`/played`): всё время персонажа с момента
+  создания, AFK входит. Запрос один раз через 3 с после входа без строки в чате; ручной
+  `/played` работает как обычно. Если игра не ответила — собственное время аддона (с 0.8.0).
+
+### Added
+- `API.RequestTimePlayed(quiet)`, `API.RestoreChatEvent`, `Activity.Lifetime()`;
+  `RequestTimePlayed` в списке проверок `/fm debug`, строка Playtime показывает источник.
+
 ## [0.8.1] — 2026-11-24 (в клиенте не проверено)
 
 ### Changed

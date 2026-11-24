@@ -76,7 +76,7 @@ ns.locales.enUS = {
     STAT_ZONES_TOTAL = "Locations visited", STAT_PLAYTIME_TOTAL = "Total playtime",
     TIP_STAT_TOTAL = "Screenshots this character has saved since the addon was installed.",
     TIP_STAT_ZONES_TOTAL = "Different zones this character has ever visited (since the addon was installed).",
-    TIP_STAT_PLAYTIME_TOTAL = "All active play of this character: AFK, loading screens and time outside the game are not counted. Counted since version 0.8.0.",
+    TIP_STAT_PLAYTIME_TOTAL = "All time of this character in the game since it was created, as /played shows it (AFK included). If the game does not report it, the addon's own active playtime since version 0.8.0 is shown.",
     SUB_SHOTS = "Screenshots", SUB_STEPS = "Steps", SUB_ZONES = "Locations",
     NO_SHOTS_YET = "This character has no screenshots yet",
     SCREENSHOTS_FOLDER_NOTE = "Screenshots are saved in the game's Screenshots folder.",

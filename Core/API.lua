@@ -126,6 +126,43 @@ function API.InCombat()
     return InCombatLockdown() and true or false
 end
 
+-- /played: asks the server for the character's total time in the game.
+-- The answer arrives as TIME_PLAYED_MSG(totalSeconds, levelSeconds). Chat
+-- frames normally print it; with `quiet` the event is taken away from the
+-- chat frames for this request (only those that had it). Returns true and
+-- the list of muted frames (give it to API.RestoreChatEvent later), or nil
+-- plus a reason. Standard client function, not yet checked in Forever.
+function API.RequestTimePlayed(quiet)
+    local request = API.Resolve("RequestTimePlayed")
+    if not request then
+        return nil, "RequestTimePlayed unavailable"
+    end
+    local muted = {}
+    if quiet then
+        for i = 1, (type(NUM_CHAT_WINDOWS) == "number" and NUM_CHAT_WINDOWS or 10) do
+            local frame = _G["ChatFrame" .. i]
+            if type(frame) == "table" and frame.IsEventRegistered
+                and frame:IsEventRegistered("TIME_PLAYED_MSG") then
+                frame:UnregisterEvent("TIME_PLAYED_MSG")
+                muted[#muted + 1] = frame
+            end
+        end
+    end
+    local ok, err = pcall(request)
+    if not ok then
+        API.RestoreChatEvent(muted, "TIME_PLAYED_MSG")
+        return nil, tostring(err)
+    end
+    return true, muted
+end
+
+-- Gives an event back to the frames muted above.
+function API.RestoreChatEvent(frames, event)
+    for _, frame in ipairs(frames or {}) do
+        pcall(frame.RegisterEvent, frame, event)
+    end
+end
+
 -- True when the character is marked AFK. UnitIsAFK is a standard client
 -- function, not yet checked in Forever: if it is missing or returns a
 -- secret value, the character is treated as not AFK (see

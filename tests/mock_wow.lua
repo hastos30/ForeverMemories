@@ -18,6 +18,8 @@ local function newFrame(env, kind, name)
         if env.unknownEvents[event] then error("Attempt to register unknown event \"" .. event .. "\"") end
         self.events[event] = true
     end
+    function methods:UnregisterEvent(event) self.events[event] = nil end
+    function methods:IsEventRegistered(event) return self.events[event] == true end
     function methods:SetScript(script, fn) self.scripts[script] = fn end
     function methods:GetScript(script) return self.scripts[script] end
     function methods:HookScript(script, fn)
@@ -161,6 +163,18 @@ function Mock.new(options)
             return ticker
         end,
     }
+    -- /played: the server answers after a moment; ChatFrame1 prints it
+    -- unless the event was taken away from it.
+    env.played, env.playedCalls = options.played or (125 * 3600 + 30 * 60), 0
+    _G.RequestTimePlayed = function()
+        env.playedCalls = env.playedCalls + 1
+        C_Timer.After(0.2, function() env.fire("TIME_PLAYED_MSG", env.played, 600) end)
+    end
+    _G.ChatFrame1 = newFrame(env, "Frame", "ChatFrame1")
+    ChatFrame1:RegisterEvent("TIME_PLAYED_MSG")
+    ChatFrame1:SetScript("OnEvent", function(_, event, total)
+        env.chat[#env.chat + 1] = "Total time played: " .. tostring(total)
+    end)
     _G.C_EventUtils = { IsEventValid = function(event) return not env.unknownEvents[event] end }
 
     _G.CreateFrame = function(kind, name, parent, template)

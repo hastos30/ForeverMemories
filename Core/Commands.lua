@@ -21,6 +21,7 @@ local PROBE_FUNCTIONS = {
     "C_Map.GetWorldPosFromMapPos", "UnitPosition", "GetUnitSpeed", "IsSwimming", "IsFlying",
     "UnitOnTaxi", "UnitInVehicle", "UnitIsAFK", "UnitGUID", "IsInInstance", "issecretvalue",
     "C_EventUtils.IsEventValid", "C_Item.GetItemQualityByID", "IsInGuild", "GetGuildInfo",
+    "RequestTimePlayed",
 }
 
 local commands = {}
@@ -81,9 +82,10 @@ function commands.debug()
         math.floor(elapsed / 60), math.floor(elapsed % 60), due / 60, passiveState,
         tostring(ns.API.IsAFK())))
     local playtime = ns.character.playtime
-    Print(string.format("Playtime: today %ds, total %ds, now %s; zones today %d, visited %d",
-        ns.Activity.Today(), math.floor(playtime.total), ns.Activity.BlockReason() or "active",
-        ns.Locations.Today(), ns.Locations.Total()))
+    local lifetime, lifetimeSource = ns.Activity.Lifetime()
+    Print(string.format("Playtime: today %ds, active total %ds, lifetime %ds (%s), now %s; zones today %d, visited %d",
+        ns.Activity.Today(), math.floor(playtime.total), lifetime, lifetimeSource,
+        ns.Activity.BlockReason() or "active", ns.Locations.Today(), ns.Locations.Total()))
     local character = ns.character
     Print(string.format("Character: %s, GUID %s%s, guild %s", ns.characterKey, tostring(character.guid),
         character.guidChanged and " (changed!)" or "", tostring(character.guild)))

@@ -271,6 +271,9 @@ UI.builders.history = function(parent)
         buttons[id]:SetPoint("TOPLEFT", (i - 1) * (third + gap), -222)
     end
 
+    local function refreshPlaytime()
+        cards.playtime.value:SetText(UI.FormatDuration((ns.Activity.Lifetime())))
+    end
     local function refreshSteps()
         cards.steps.value:SetText(ns.Num(ns.Steps.Total()))
         if current == "steps" then
@@ -284,10 +287,11 @@ UI.builders.history = function(parent)
             refreshHeader()
             cards.shots.value:SetText(ns.Num(ns.History.Stats().total))
             cards.zones.value:SetText(ns.Num(ns.Locations.Total()))
-            cards.playtime.value:SetText(UI.FormatDuration(ns.Activity.Total()))
+            refreshPlaytime()
             refreshSteps()
             select(current)
         end,
         RefreshSteps = refreshSteps,
+        RefreshClock = refreshPlaytime,
     }
 end

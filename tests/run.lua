@@ -886,6 +886,47 @@ test("locations: old visited zones count, a new day re-records the zone you stan
     eq(ns.Locations.Today(), 1, "today without moving")
 end)
 
+local function playedLines(env)
+    local n = 0
+    for _, line in ipairs(env.chat) do
+        if string.find(line, "Total time played", 1, true) then n = n + 1 end
+    end
+    return n
+end
+
+test("total playtime: the game's /played, asked once, without a chat line", function()
+    local env, ns = start()
+    local _, source = ns.Activity.Lifetime()
+    eq(source, "addon", "before the answer: own count")
+    env.advance(5)
+    eq(env.playedCalls, 1, "asked once after login")
+    local value, from = ns.Activity.Lifetime()
+    eq(from, "game", "from the game")
+    near(value, 125 * 3600 + 30 * 60, 5, "game value")
+    eq(playedLines(env), 0, "no chat line for the addon's request")
+    env.advance(20)
+    eq(ChatFrame1:IsEventRegistered("TIME_PLAYED_MSG"), true, "chat gets the event back")
+    near(ns.Activity.Lifetime(), 125 * 3600 + 30 * 60 + 20, 2, "advances with the session")
+    env.afk = true
+    env.advance(60)
+    near(ns.Activity.Lifetime(), 125 * 3600 + 30 * 60 + 80, 2, "AFK included, like /played")
+    RequestTimePlayed() -- the player types /played
+    env.advance(1)
+    eq(playedLines(env), 1, "a typed /played is printed as usual")
+    ns.UI.Toggle("history", "shots")
+    noErrors(ns)
+end)
+
+test("total playtime: no RequestTimePlayed -> the addon's own count, no error", function()
+    local env = Mock.new()
+    _G.RequestTimePlayed = nil
+    local ns = env.login(".")
+    env.advance(10 * MIN)
+    local value, from = ns.Activity.Lifetime()
+    eq(from, "addon", "own count") near(value, 10 * MIN, 2, "active playtime")
+    eq(ChatFrame1:IsEventRegistered("TIME_PLAYED_MSG"), true, "chat untouched")
+end)
+
 test("history: total playtime sums every day of the character", function()
     local env, ns = start()
     ns.character.playtime.days["2026-11-01"] = 3 * 3600
@@ -1052,10 +1093,11 @@ end)
 test("history: lifetime dashboard stays visible over Screenshots, Steps and Locations", function()
     local env, ns = start()
     ns.character.steps.total, ns.character.steps.days[ns.Util.DayKey(time())] = 358724, 12458
-    ns.character.playtime.total = 3 * 3600 + 42 * 60
+    env.played = 3 * 3600 + 42 * 60
     env.mapID, env.zone = 52, "Westfall"
     env.fire("ZONE_CHANGED_NEW_AREA")
     env.advance(5)
+    env.advance(4) -- /played answer
     ns.UI.Toggle("history", "shots")
     eq(hasText(env, "Lifetime statistics"), true, "caption")
     for _, sub in ipairs({ "Screenshots", "Steps", "Locations" }) do
