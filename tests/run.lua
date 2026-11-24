@@ -165,15 +165,6 @@ test("one step = 1.5 m: a 1.5 m tap of W adds one step", function()
     near(ns.Steps.YardsToSteps(1.5 / 0.9144), 1, 0.0001, "1.5 m")
 end)
 
-test("walking (v0.5.2): one step = 1 yard, ~2.5 steps per second like the animation", function()
-    local env, ns = start()
-    env.advance(1)
-    walk(env, 7, 2.5) -- the video: ~7 s of walking, ~17 steps on screen
-    near(ns.character.steps.total, 17.5, 1.5, "walk 7 s")
-    near(ns.Steps.YardsToSteps(10, 2.5), 10, 0.0001, "walk stride")
-    near(ns.Steps.YardsToSteps(10, 7), 10 * 0.9144 / 1.5, 0.0001, "run stride")
-end)
-
 test("migration runs once: loading again does not duplicate records", function()
     local _, ns = start({ savedDB = oldDB() })
     local saved = ns.db
