@@ -2,7 +2,7 @@
 
 **English** · [Русский](PROGRESS.md)
 
-Current version: **1.0.0-beta.16** (2026-11-25). Built, tests 54/54 and 112/112, checked in the
+Current version: **1.0.0-beta.17** (2026-11-25). Built, tests 54/54 and 112/112, checked in the
 Forever client from Viktor's screenshots. The full history of every version is in
 [CHANGELOG.en.md](CHANGELOG.en.md).
 
@@ -19,11 +19,14 @@ Forever client from Viktor's screenshots. The full history of every version is i
   documentation and the build moved to a "Development" section (not shown in the game), versions
   without add-on changes are hidden; a test keeps technical words out of the game.
 - beta.16: in History, another character's playtime card shows its saved /played ("Total
-  playtime"), not the addon's count. Bug found by Viktor in the game from screenshots.
+  playtime"), not the addon's count. Bug found by Viktor in the game from screenshots;
+  the fix is checked in the game.
+- beta.17: All characters shows the same time as the character cards (/played), the total is
+  their sum; without a saved /played the time is marked "(addon)".
 
 ## Check in Forever
-- History (beta.16): log in with each character once, then open another one from the list;
-  "Total playtime" matches /played at its logout.
+- All characters (beta.17): the time in the rows matches the character cards, "(addon)" where
+  there is no /played; the note at the bottom fits.
 - Mini notification (beta.12): the dark background does not stick out of the frame, no gaps
   before the gold line.
 - Notifications (beta.10–11): "Preview" / "Hide", the "Edit" panel, "x" inside the frame.

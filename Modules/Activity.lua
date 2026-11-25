@@ -239,17 +239,24 @@ end
 -- "game" (/played, since the character was created) or "addon" (our
 -- active playtime since v0.8.0, when the game did not answer).
 function Activity.Lifetime()
-    -- The live /played belongs to the logged-in character only (History
-    -- may show another one read-only, v0.12.0); any character has the
-    -- last saved one.
-    if played and ns.character == ns.db.characters[ns.characterKey] then
+    return Activity.LifetimeOf(ns.character)
+end
+
+-- The same for any saved character (History, All characters). The live
+-- /played belongs to the logged-in character only (History may show
+-- another one read-only, v0.12.0); any character has the last saved one.
+function Activity.LifetimeOf(character)
+    if not character then
+        return 0, "addon"
+    end
+    if played and character == ns.db.characters[ns.characterKey] then
         return math.floor(played.total + math.max(0, API.Now() - played.at)), "game"
     end
-    local saved = data() and data().played
-    if saved then
-        return math.floor(saved.total), "game"
+    local playtime = type(character.playtime) == "table" and character.playtime or {}
+    if playtime.played then
+        return math.floor(playtime.played.total), "game"
     end
-    return Activity.Total(), "addon"
+    return math.floor(playtime.total or 0), "addon"
 end
 
 -- Keeps the current /played in the logged-in character's data.

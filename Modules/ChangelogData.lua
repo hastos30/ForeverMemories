@@ -4,6 +4,17 @@ local _, ns = ...
 
 ns.CHANGELOG = {
     {
+        version = "1.0.0-beta.17",
+        date = "2026-11-25",
+        title = "Всё игровое время на странице «Все персонажи»",
+        sections = {
+            { kind = "fixed", items = {
+                "«Все персонажи»: у каждого персонажа в списке то же время, что на его собственной плитке, — «Всё игровое время» (как в /played). Итог аккаунта — их сумма.",
+                "Если /played персонажа ещё не сохранён, рядом с его временем стоит «(аддон)», а итог называется «Время в игре», чтобы было видно, что в нём есть время аддона.",
+            } },
+        },
+    },
+    {
         version = "1.0.0-beta.16",
         date = "2026-11-25",
         title = "Всё игровое время у других персонажей",
@@ -531,6 +542,17 @@ ns.CHANGELOG = {
     },
 }
 ns.CHANGELOG_EN = {
+    {
+        version = "1.0.0-beta.17",
+        date = "2026-11-25",
+        title = "Total playtime on the All characters page",
+        sections = {
+            { kind = "fixed", items = {
+                "All characters: each character in the list shows the same time as its own card, \"Total playtime\" (as /played). The account total is their sum.",
+                "When a character's /played is not saved yet, its time is marked \"(addon)\" and the total is called \"Time in game\", so you can see it includes the addon's count.",
+            } },
+        },
+    },
     {
         version = "1.0.0-beta.16",
         date = "2026-11-25",

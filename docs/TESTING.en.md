@@ -9,7 +9,7 @@ works in the game.
 ## 1. Offline (without the game)
 Needs `lua5.1`. Run from the addon root:
 
-| Command | What it checks | State (1.0.0-beta.16) |
+| Command | What it checks | State (1.0.0-beta.17) |
 |---|---|---|
 | `lua5.1 tests/smoke.lua` | The addon loads, every tab and every History/Settings page opens in both languages, every file listed in `UI/Media.lua` exists. | 54 / 54 PASS |
 | `lua5.1 tests/run.lua` | The full suite: migrations and schema 6, auto capture, steps, diary, achievements, settings, changelog. | 112 / 112 PASS |

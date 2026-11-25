@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 Both files (this one and CHANGELOG.md) feed the in-game Changelog page: `lua5.1 tools/changelog.lua`.
 Only changes of the add-on itself go into the game; notes about tests, documentation and the build go under "### Development", which the game does not show.
 
+## [1.0.0-beta.17] — 2026-11-25 — Total playtime on the All characters page (not checked in the client)
+
+### Fixed
+- All characters: each character in the list shows the same time as its own card, "Total playtime" (as /played). The account total is their sum.
+- When a character's /played is not saved yet, its time is marked "(addon)" and the total is called "Time in game", so you can see it includes the addon's count.
+
+### Development
+- `Activity.LifetimeOf(character)` gives the card's time for any character; `DataTools.Summary` returns `lifetime` and `lifetimeSource`, `AccountTotals` returns `lifetime` and `allGame`. The export still writes the addon's active time.
+
 ## [1.0.0-beta.16] — 2026-11-25 — Total playtime of other characters (not checked in the client)
 
 ### Fixed

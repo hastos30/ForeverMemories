@@ -2112,7 +2112,7 @@ test("v0.12 all characters: totals, union of zones, read-only view, back to curr
     ns.UI.Toggle("history")
     ns.UI.TabView("history").Pick("account") -- beta.10: the character list
     eq(hasText(env, "Saved characters"), true, "list")
-    eq(hasText(env, "Active play (addon)"), true, "addon time, not /played")
+    eq(hasText(env, "Time in game"), true, "beta.17: not every character has /played saved")
     local row
     for _, frame in ipairs(env.frames) do
         if rawget(frame, "key") == otherKey then row = frame end
@@ -2319,7 +2319,7 @@ test("changelog page: only changes of the add-on, no developer words", function(
     noErrors(ns)
 end)
 
-test("beta.16 history: /played of another character is saved, not the addon count", function()
+test("beta.16-17 history: /played of another character and in All characters", function()
     local env, ns = start()
     env.advance(5) -- the game answers /played
     local own = ns.character.playtime
@@ -2346,6 +2346,23 @@ test("beta.16 history: /played of another character is saved, not the addon coun
     eq(hasText(env, ns.UI.FormatDuration(300)), true, "its addon count")
     view.Pick(ns.characterKey)
     eq(hasText(env, "Total playtime"), true, "back: the live /played")
+
+    -- beta.17: All characters shows the same numbers as each card.
+    view.Pick("account")
+    eq(hasText(env, "Time in game"), true, "Jaina has no /played: no \"Total playtime\" on the sum")
+    local t = ns.DataTools.AccountTotals()
+    eq(t.allGame, false, "not all /played")
+    eq(t.lifetime, ns.Activity.Lifetime() + 2 * 86400 + 3600 + 300, "sum of the cards")
+    local thrall = ns.DataTools.Summary(other)
+    eq(thrall.lifetime, 2 * 86400 + 3600, "Thrall: saved /played") eq(thrall.lifetimeSource, "game", "source")
+    local found
+    for _, text in ipairs(texts(env)) do
+        if text:find(ns.UI.FormatDuration(300) .. " (addon)", 1, true) then found = true end
+    end
+    eq(found, true, "Jaina's row marks the addon count")
+    fresh.playtime.played = { total = 4000, at = 1 }
+    view.Refresh()
+    eq(hasText(env, "Total playtime"), true, "everyone has /played: the usual caption")
 
     -- A broken saved value is dropped by validation.
     local db = ns.Database.Load({ schemaVersion = ns.Database.SCHEMA_VERSION, settings = {}, characters = {

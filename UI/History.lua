@@ -1865,7 +1865,8 @@ local function buildAccount(parent, onOpen)
                 row.tag:SetShown(item.current)
                 row.detail:SetText(table.concat({
                     ns.Count(s.shots, "SHOTS"), ns.Count(s.steps, "STEPS"), ns.Count(s.zones, "ZONES"),
-                    UI.FormatDuration(s.playtime),
+                    UI.FormatDuration(s.lifetime)
+                        .. (s.lifetimeSource == "addon" and (" " .. L.ACCOUNT_ADDON_MARK) or ""),
                 }, "  ·  "))
             end,
         },
@@ -1877,7 +1878,7 @@ local function buildAccount(parent, onOpen)
             items[#items + 1] = { kind = "character", key = item.key, character = item.character,
                                   summary = item.summary, current = item.current }
         end
-        items[#items + 1] = { kind = "note", text = L.ACCOUNT_NOTE, height = 40 }
+        items[#items + 1] = { kind = "note", text = L.ACCOUNT_NOTE, height = 52 }
         show(self, items, keep)
     end
     return view
@@ -2032,8 +2033,9 @@ UI.builders.history = function(parent)
             cards.shots.value:SetText(ns.Num(t.shots))
             cards.steps.value:SetText(ns.Num(t.steps))
             cards.zones.value:SetText(ns.Num(t.zones))
-            cards.playtime.value:SetText(UI.FormatDuration(t.playtime))
-            cards.playtime.caption:SetText(L.ACCOUNT_ACTIVE_TIME)
+            -- beta.17: the sum of what each character's card shows.
+            cards.playtime.value:SetText(UI.FormatDuration(t.lifetime))
+            cards.playtime.caption:SetText(t.allGame and L.STAT_PLAYTIME_TOTAL or L.ACCOUNT_PLAYTIME)
         else
             withViewed(function()
                 refreshHeader(viewedCharacter() and L.VIEWING_READ_ONLY or L.LIFETIME_STATS)

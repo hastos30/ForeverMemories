@@ -40,7 +40,11 @@ function DataTools.Summary(character)
             end
         end
     end
+    -- beta.17: the time shown in History, as on the character's own card.
+    local lifetime, lifetimeSource = ns.Activity.LifetimeOf(character)
     return {
+        lifetime = lifetime,
+        lifetimeSource = lifetimeSource, -- "game" (/played) or "addon"
         shots = character.shotsTotal or 0,
         steps = math.floor(character.steps and character.steps.total or 0),
         zones = zones,
@@ -73,10 +77,12 @@ end
 
 -- Totals of every saved character (History / All characters, v0.12.0).
 -- Locations are the union of the zones (one zone visited by two
--- characters counts once). Time is the active play measured by the addon
--- for each character; /played of the game is never added to it.
+-- characters counts once). playtime is the active play measured by the
+-- addon; lifetime (beta.17) sums what each character's own card shows
+-- (/played when saved), allGame = every one of them is /played.
 function DataTools.AccountTotals()
-    local totals = { characters = 0, shots = 0, steps = 0, zones = 0, playtime = 0 }
+    local totals = { characters = 0, shots = 0, steps = 0, zones = 0, playtime = 0,
+                     lifetime = 0, allGame = true }
     local zones = {}
     for _, character in pairs(ns.db.characters) do
         local s = DataTools.Summary(character)
@@ -84,6 +90,8 @@ function DataTools.AccountTotals()
         totals.shots = totals.shots + s.shots
         totals.steps = totals.steps + s.steps
         totals.playtime = totals.playtime + s.playtime
+        totals.lifetime = totals.lifetime + s.lifetime
+        totals.allGame = totals.allGame and s.lifetimeSource == "game"
         for key in pairs(character.visited or {}) do
             zones[key] = true
         end
