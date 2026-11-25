@@ -23,6 +23,7 @@ Only changes of the add-on itself go into the game; notes about tests, documenta
 - `chain` field in `Modules/AchievementCatalog.lua` (24 chains, 76 steps); `Achievements.CHAINS`, `Steps`, `Cards`, `Breakdown`, `MovePin`. Saved data is unchanged, no migration.
 - History / Achievements: new row kinds `achDash` and `achStep`, a shared `spacer`.
 - 6 new tests (118 in total): chain catalog, cards, moving pins, one goal per chain, unfolding and the dashboard in both languages, the next step in chat.
+- README and docs/ARCHITECTURE: version 1.0.0-beta.18, 106 achievements in 54 cards (24 chains).
 
 ## [1.0.0-beta.17] — 2026-11-25 — Total playtime on the All characters page (not checked in the client)
 

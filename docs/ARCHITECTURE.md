@@ -40,7 +40,7 @@ ForeverMemories/
 | Modules/Adventure, Journey, Memories | Календарь и итоги, хроника важных моментов, «В этот день» и годовщины. |
 | Modules/Records, SessionRecap | Личные рекорды, итоги игровой сессии. |
 | Modules/Progress, Trackers | Состояния персонажа для достижений (деньги, репутации, профессии…). Только подтверждённые значения, прошлое не угадывается. |
-| Modules/AchievementCatalog, Achievements | Каталог 106 достижений (персонаж + аккаунт) и их проверка; цепочки ступеней (`chain`) и карточки для страницы. |
+| Modules/AchievementCatalog, Achievements | Каталог 106 достижений (персонаж + аккаунт, 54 карточки) и их проверка; цепочки ступеней (`chain`) и карточки для страницы. |
 | Modules/Notifications | Три вида уведомлений (mini, discovery, legendary) и строка в чате. Своё место и размер у каждого вида (`ui.notify`). |
 | Modules/DataTools, ProjectInfo | Персонажи, экспорт, резервная копия, удаление; диагностика без имени, сервера и GUID. |
 | Modules/ChangelogData | **Генерируется** `tools/changelog.lua` из CHANGELOG.md и CHANGELOG.en.md. |
