@@ -34,6 +34,8 @@
 --   -- v0.12.0: playtime.session also counts shots, steps, zones, newZones,
 --   -- levels and ended (logout time); playtime.lastSession = the last
 --   -- closed one; playtime.longestAt = start of the longest session.
+--   -- 1.0.0-beta.16: playtime.played = { total = /played seconds, at = Unix
+--   -- time } — the last /played, saved for History of other characters.
 --   zoneStats = { since = t, current = { key, t },
 --                 zones = { [zoneKey] = { time, steps, visits, last } } }
 --   -- Schema 6 (v0.14.0): Hall of Memories, catalog 1.0.
@@ -696,6 +698,11 @@ local function validateCharacter(character, path, repaired)
     end
     if playtime.longestAt ~= nil and not number(playtime.longestAt) then
         playtime.longestAt = nil
+    end
+    local saved = playtime.played
+    if saved ~= nil and (type(saved) ~= "table" or not number(saved.total) or not number(saved.at)) then
+        playtime.played = nil
+        repaired[#repaired + 1] = path .. ".playtime.played"
     end
     local last = playtime.lastSession
     if last ~= nil and (type(last) ~= "table" or not number(last.start) or not number(last.finish)

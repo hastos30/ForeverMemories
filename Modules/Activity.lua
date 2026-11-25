@@ -16,6 +16,9 @@
 -- asked once a few seconds after login, quietly (no chat line), and then
 -- advanced by the session clock, like /played itself (AFK included).
 -- If the client does not answer, our own active playtime is shown.
+-- beta.16: each answer (and the final value at logout) is also saved as
+-- playtime.played = { total, at }, so History shows /played of another
+-- character too (as of its last logout), not only the addon's count.
 local _, ns = ...
 
 local Activity = {}
@@ -236,12 +239,28 @@ end
 -- "game" (/played, since the character was created) or "addon" (our
 -- active playtime since v0.8.0, when the game did not answer).
 function Activity.Lifetime()
-    -- /played belongs to the logged-in character only (History may show
-    -- another one read-only, v0.12.0).
+    -- The live /played belongs to the logged-in character only (History
+    -- may show another one read-only, v0.12.0); any character has the
+    -- last saved one.
     if played and ns.character == ns.db.characters[ns.characterKey] then
         return math.floor(played.total + math.max(0, API.Now() - played.at)), "game"
     end
+    local saved = data() and data().played
+    if saved then
+        return math.floor(saved.total), "game"
+    end
     return Activity.Total(), "addon"
+end
+
+-- Keeps the current /played in the logged-in character's data.
+local function savePlayed()
+    local own = ns.db and ns.characterKey and ns.db.characters[ns.characterKey]
+    if played and own and type(own.playtime) == "table" then
+        own.playtime.played = {
+            total = math.floor(played.total + math.max(0, API.Now() - played.at)),
+            at = API.Time(),
+        }
+    end
 end
 
 local function unmute()
@@ -269,6 +288,7 @@ end
 playedEvent = ns.On("TIME_PLAYED_MSG", function(_, total)
     if API.IsPlainNumber(total) and total >= 0 then
         played = { total = total, at = API.Now() }
+        savePlayed()
     end
     if muted then
         -- The chat frames have skipped this answer; give them the event back.
@@ -288,6 +308,7 @@ end)
 -- Logout, quit or /reload: the moment is remembered as the possible end
 -- of the session; a login within SESSION_GAP clears it again (/reload).
 ns.On("PLAYER_LOGOUT", function()
+    savePlayed()
     local playtime = data()
     if playtime and playtime.session then
         playtime.session.ended = API.Time()

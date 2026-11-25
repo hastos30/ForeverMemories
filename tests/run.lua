@@ -2319,5 +2319,40 @@ test("changelog page: only changes of the add-on, no developer words", function(
     noErrors(ns)
 end)
 
+test("beta.16 history: /played of another character is saved, not the addon count", function()
+    local env, ns = start()
+    env.advance(5) -- the game answers /played
+    local own = ns.character.playtime
+    eq(type(own.played), "table", "the answer is saved")
+    near(own.played.total, 125 * 3600 + 30 * 60, 5, "saved /played")
+    env.advance(100)
+    env.fire("PLAYER_LOGOUT")
+    near(own.played.total, 125 * 3600 + 30 * 60 + 100, 5, "updated at logout")
+
+    local other = ns.Database.Character(ns.db, "Other Realm:Thrall", { name = "Thrall", realm = "Other Realm", class = "SHAMAN" })
+    other.playtime.total = 600
+    other.playtime.played = { total = 2 * 86400 + 3600, at = 1 }
+    local fresh = ns.Database.Character(ns.db, "Other Realm:Jaina", { name = "Jaina", realm = "Other Realm", class = "MAGE" })
+    fresh.playtime.total = 300
+    ns.UI.Toggle("history")
+    local view = ns.UI.TabView("history")
+    view.Pick("Other Realm:Thrall")
+    eq(hasText(env, "Read-only view"), true, "viewing another character")
+    eq(hasText(env, "Total playtime"), true, "the same caption as for the current one")
+    eq(hasText(env, ns.UI.FormatDuration(2 * 86400 + 3600)), true, "its saved /played")
+    eq(hasText(env, "Active play (addon)"), false, "not the addon count")
+    view.Pick("Other Realm:Jaina")
+    eq(hasText(env, "Active play (addon)"), true, "no /played saved yet: the addon count, named so")
+    eq(hasText(env, ns.UI.FormatDuration(300)), true, "its addon count")
+    view.Pick(ns.characterKey)
+    eq(hasText(env, "Total playtime"), true, "back: the live /played")
+
+    -- A broken saved value is dropped by validation.
+    local db = ns.Database.Load({ schemaVersion = ns.Database.SCHEMA_VERSION, settings = {}, characters = {
+        ["R:A"] = { name = "A", realm = "R", playtime = { total = 1, days = {}, played = { total = "x" } } } } })
+    eq(db.characters["R:A"].playtime.played, nil, "broken /played removed")
+    noErrors(ns)
+end)
+
 print(string.format("\n%d passed, %d failed", passed, failed))
 os.exit(failed == 0 and 0 or 1)

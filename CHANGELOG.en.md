@@ -6,6 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 Both files (this one and CHANGELOG.md) feed the in-game Changelog page: `lua5.1 tools/changelog.lua`.
 Only changes of the add-on itself go into the game; notes about tests, documentation and the build go under "### Development", which the game does not show.
 
+## [1.0.0-beta.16] — 2026-11-25 — Total playtime of other characters (not checked in the client)
+
+### Fixed
+- History: when you view another character, the playtime card shows its "Total playtime" (as /played) as of its last logout, not the short active playtime. The value appears once you have logged in with that character at least once on the new version.
+- The card's caption always matches the number: "Total playtime" when it is known, "Active play (addon)" when it is not.
+
+### Development
+- The last /played is saved in `playtime.played = { total, at }` when the game answers and at logout; data validation drops a broken value.
+- New test: saving /played, viewing another character with and without it.
+
 ## [1.0.0-beta.15] — 2026-11-25 — Only add-on changes in the Changelog
 
 ### Improved

@@ -4,6 +4,17 @@ local _, ns = ...
 
 ns.CHANGELOG = {
     {
+        version = "1.0.0-beta.16",
+        date = "2026-11-25",
+        title = "Всё игровое время у других персонажей",
+        sections = {
+            { kind = "fixed", items = {
+                "История: при просмотре другого персонажа плитка времени показывает его «Всё игровое время» (как в /played) на момент его последнего выхода из игры, а не короткое время активной игры. Значение появится после того, как ты хотя бы раз зайдёшь этим персонажем с новой версией.",
+                "Подпись плитки всегда совпадает с числом: «Всё игровое время», если оно известно, и «Активная игра (аддон)», если нет.",
+            } },
+        },
+    },
+    {
         version = "1.0.0-beta.15",
         date = "2026-11-25",
         title = "Только изменения аддона в «Обновлениях»",
@@ -520,6 +531,17 @@ ns.CHANGELOG = {
     },
 }
 ns.CHANGELOG_EN = {
+    {
+        version = "1.0.0-beta.16",
+        date = "2026-11-25",
+        title = "Total playtime of other characters",
+        sections = {
+            { kind = "fixed", items = {
+                "History: when you view another character, the playtime card shows its \"Total playtime\" (as /played) as of its last logout, not the short active playtime. The value appears once you have logged in with that character at least once on the new version.",
+                "The card's caption always matches the number: \"Total playtime\" when it is known, \"Active play (addon)\" when it is not.",
+            } },
+        },
+    },
     {
         version = "1.0.0-beta.15",
         date = "2026-11-25",

@@ -1999,9 +1999,15 @@ UI.builders.history = function(parent)
     modeSwitch:SetPoint("TOPRIGHT", 0, -2)
     W.Tooltip(modeSwitch, L.TIP_HISTORY_PICK, L.HISTORY_PICK)
 
+    -- /played when known (live or saved), else the addon's active play;
+    -- the caption says which one it is.
+    local function showPlaytime(value, source)
+        cards.playtime.value:SetText(UI.FormatDuration(value))
+        cards.playtime.caption:SetText(source == "game" and L.STAT_PLAYTIME_TOTAL or L.ACCOUNT_ACTIVE_TIME)
+    end
     local function refreshPlaytime()
         if mode == "character" and not viewedCharacter() then
-            cards.playtime.value:SetText(UI.FormatDuration((ns.Activity.Lifetime())))
+            showPlaytime(ns.Activity.Lifetime())
         end
     end
     local function refreshSteps()
@@ -2034,10 +2040,8 @@ UI.builders.history = function(parent)
                 cards.shots.value:SetText(ns.Num(ns.History.Stats().total))
                 cards.zones.value:SetText(ns.Num(ns.Locations.Total()))
                 cards.steps.value:SetText(ns.Num(ns.Steps.Total()))
-                -- /played exists only for the logged-in character.
-                cards.playtime.value:SetText(UI.FormatDuration((ns.Activity.Lifetime())))
+                showPlaytime(ns.Activity.Lifetime())
             end)
-            cards.playtime.caption:SetText(viewedCharacter() and L.ACCOUNT_ACTIVE_TIME or L.STAT_PLAYTIME_TOTAL)
         end
         select(current, pendingDay, not switched)
         pendingDay, switched = nil, false
