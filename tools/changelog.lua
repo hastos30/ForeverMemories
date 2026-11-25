@@ -8,7 +8,9 @@
 --
 -- Version header: "## [0.10.0] — 2026-11-25 — Title (note)"; the title is
 -- optional. Sections Added / Changed / Improved / Fixed / Removed are
--- kept ("Changed" is shown as "Improved"); other sections are not shown.
+-- kept ("Changed" is shown as "Improved"); other sections (for example
+-- "Для разработки" / "Development") are not shown. A version with nothing
+-- to show is left out, so the page lists only changes of the add-on itself.
 local M = {}
 
 local SECTIONS = { added = "added", changed = "improved", improved = "improved", fixed = "fixed", removed = "removed" }
@@ -70,7 +72,11 @@ function M.Parse(markdown)
         end
     end
     flush()
-    return versions
+    local shown = {}
+    for _, v in ipairs(versions) do
+        if #v.sections > 0 then shown[#shown + 1] = v end
+    end
+    return shown
 end
 
 local function q(s)

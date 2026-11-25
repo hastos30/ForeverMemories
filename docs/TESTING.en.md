@@ -9,10 +9,10 @@ works in the game.
 ## 1. Offline (without the game)
 Needs `lua5.1`. Run from the addon root:
 
-| Command | What it checks | State (1.0.0-beta.14) |
+| Command | What it checks | State (1.0.0-beta.15) |
 |---|---|---|
 | `lua5.1 tests/smoke.lua` | The addon loads, every tab and every History/Settings page opens in both languages, every file listed in `UI/Media.lua` exists. | 54 / 54 PASS |
-| `lua5.1 tests/run.lua` | The full suite: migrations and schema 6, auto capture, steps, diary, achievements, settings, changelog. | 110 / 110 PASS |
+| `lua5.1 tests/run.lua` | The full suite: migrations and schema 6, auto capture, steps, diary, achievements, settings, changelog. | 111 / 111 PASS |
 
 `tests/mock_wow.lua` is the fake client (WoW functions and frames) both suites run on.
 Before a release both suites must pass in full.

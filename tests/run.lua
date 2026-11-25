@@ -2288,5 +2288,36 @@ test("achievements view: filters and category headings, English and Russian", fu
     end
 end)
 
+test("changelog page: only changes of the add-on, no developer words", function()
+    local env, ns = start()
+    -- Words that belong to development, not to the player: files, modules,
+    -- tests, the data schema, the build, function and event names.
+    local banned = {
+        "%.lua", "%.md", "%.zip", "%.sh", "tools/", "docs/", "Modules/", "Core/", "UI/",
+        "[Тт]ест", "%f[%a][Tt]est", "[Сс]хема данных", "[Сс]хемы данных", "[Ss]chema", "[Мм]играци", "[Mm]igration",
+        "[Сс]борк", "%f[%a][Bb]uild", "[Дд]окументац", "[Dd]ocumentation", "README", "PROGRESS",
+        "SavedVariables", "ForeverMemoriesDB", "API", "GUID", "TTL", "ID AreaTable",
+        "%u%l+%.%u%a+%(", "%a+%(%)", "ключ локали", "locale key", "%u%u+_%u%u+",
+    }
+    local count = 0
+    for _, list in ipairs({ ns.CHANGELOG, ns.CHANGELOG_EN }) do
+        for _, version in ipairs(list) do
+            eq(#version.sections > 0, true, version.version .. " has something to show")
+            for _, section in ipairs(version.sections) do
+                for _, text in ipairs(section.items) do
+                    count = count + 1
+                    for _, pattern in ipairs(banned) do
+                        if text:find(pattern) then
+                            eq(text, nil, version.version .. " shows a developer word (" .. pattern .. ")")
+                        end
+                    end
+                end
+            end
+        end
+    end
+    eq(count > 100, true, "the history is still there")
+    noErrors(ns)
+end)
+
 print(string.format("\n%d passed, %d failed", passed, failed))
 os.exit(failed == 0 and 0 or 1)

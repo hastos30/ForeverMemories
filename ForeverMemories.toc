@@ -2,7 +2,7 @@
 ## Title: ForeverMemories
 ## Notes: Automatic screenshots, step counter and adventure diary for World of Warcraft: Forever.
 ## Notes-ruRU: Автоматические скриншоты, шагомер и дневник приключений для World of Warcraft: Forever.
-## Version: 1.0.0-beta.14
+## Version: 1.0.0-beta.15
 ## SavedVariables: ForeverMemoriesDB
 ## IconTexture: Interface\Icons\INV_Misc_Spyglass_03
 ## AddonCompartmentFunc: ForeverMemories_OnAddonCompartmentClick

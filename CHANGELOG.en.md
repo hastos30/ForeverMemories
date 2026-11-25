@@ -4,20 +4,28 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [SemVer](https://semver.org/).
 Both files (this one and CHANGELOG.md) feed the in-game Changelog page: `lua5.1 tools/changelog.lua`.
+Only changes of the add-on itself go into the game; notes about tests, documentation and the build go under "### Development", which the game does not show.
+
+## [1.0.0-beta.15] — 2026-11-25 — Only add-on changes in the Changelog
+
+### Improved
+- The Changelog page shows only what changes in the add-on itself. Behind-the-scenes notes are gone, and descriptions are rewritten in plain words.
+
+### Development
+- Developer notes live in a "Development" section and stay out of the game; versions without add-on changes are not shown on the page.
+- A test checks that the Changelog page has no technical words (files, modules, tests, data schema, function names).
 
 ## [1.0.0-beta.14] — 2026-11-25 — All tests match the current version
 
-### Improved
+### Development
 - The full offline test suite (110) is updated to the current version and passes in full: data schema 6, the new settings pages, achievement catalog 1.0, notifications per kind.
 - The release build (tools/release.sh) runs both test suites.
 
 ## [1.0.0-beta.13] — 2026-11-25 — Tidy documentation
 
-### Improved
+### Development
 - Documentation in two languages: README, changelog, progress, architecture and testing are in English and Russian.
 - The English changelog is now its own file and reaches the Changelog page the same way as the Russian one.
-
-### Removed
 - Outdated specs, the work plan and the 0.5 design notes; what is current lives in docs/ARCHITECTURE.en.md and docs/TESTING.en.md.
 
 ## [1.0.0-beta.12] — 2026-11-25 — Mini notification background fits the frame
@@ -135,7 +143,7 @@ Both files (this one and CHANGELOG.md) feed the in-game Changelog page: `lua5.1 
 
 ## [1.0.0-beta] — 2026-11-25 — Local beta
 
-### Improved
+### Development
 - Version 1.0.0-beta. No new features: a build for testing in the client.
 
 ## [0.18.0] — 2026-11-25 — ArtPack & Trackers
@@ -149,6 +157,8 @@ Both files (this one and CHANGELOG.md) feed the in-game Changelog page: `lua5.1 
 
 ### Improved
 - Discovery and Legendary cards wait for the end of combat (the small card does not).
+
+### Development
 - The build also makes a second archive: ForeverMemories_ArtPack-v1.0.0.zip.
 
 ## [0.17.0] — 2026-11-25 — Settings & Notifications
@@ -196,8 +206,10 @@ Both files (this one and CHANGELOG.md) feed the in-game Changelog page: `lua5.1 
 - New progress sources confirmed in the Forever client: the most money held, completed quests, Exalted factions and primary professions. Values only grow.
 
 ### Improved
-- Saved data schema 6. The 15 achievements of 0.13.0 moved to the new IDs with their dates.
-- Saved data is updated on a copy: if any total would shrink, the data stays as it was and the add-on says so in chat. A file from a newer version is never overwritten.
+- The 15 achievements of 0.13.0 moved to the new catalog with their dates.
+- Saved data is updated on a copy: if any total would shrink, the data stays as it was and the add-on says so in chat. Data from a newer version of the add-on is never overwritten.
+
+### Development
 - Unknown fields of the saved data are no longer removed.
 
 ## [0.13.0] — 2026-11-25 — Memories & Achievements
@@ -228,7 +240,7 @@ Both files (this one and CHANGELOG.md) feed the in-game Changelog page: `lua5.1 
 ### Added
 - Settings are split into pages: General, Data, About and Changelog.
 - Data: saved characters, statistics export, backup and import (checked, never run as code), deleting another character's history after a confirmation.
-- About: the project, community links and diagnostics without personal data.
+- About: logo, description, community links and diagnostics without personal data.
 - Key bindings in the game menu (AddOns): open the window, take a screenshot, pause auto capture, clean screenshot.
 
 ### Improved

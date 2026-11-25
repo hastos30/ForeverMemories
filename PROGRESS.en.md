@@ -2,7 +2,7 @@
 
 **English** · [Русский](PROGRESS.md)
 
-Current version: **1.0.0-beta.14** (2026-11-25). Built, tests 54/54 and 110/110, checked in the
+Current version: **1.0.0-beta.15** (2026-11-25). Built, tests 54/54 and 111/111, checked in the
 Forever client from Viktor's screenshots. The full history of every version is in
 [CHANGELOG.en.md](CHANGELOG.en.md).
 
@@ -15,6 +15,9 @@ Forever client from Viktor's screenshots. The full history of every version is i
 - beta.14: the 14 old tests were updated to the current version; the whole suite passes. They
   found no bugs in the code: the expectations changed (schema 6, new settings pages, achievement
   catalog 1.0).
+- beta.15: the Changelog page shows only changes of the add-on itself. Notes about tests,
+  documentation and the build moved to a "Development" section (not shown in the game), versions
+  without add-on changes are hidden; a test keeps technical words out of the game.
 
 ## Check in Forever
 - Mini notification (beta.12): the dark background does not stick out of the frame, no gaps

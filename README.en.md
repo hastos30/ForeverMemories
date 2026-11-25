@@ -6,7 +6,7 @@ An addon for **World of Warcraft: Forever**: an automatic photographer and adven
 Install it, log in, and it just works. The addon takes screenshots of important moments,
 counts your steps and playtime, and keeps your character's story. *Your adventure. Your story.*
 
-Version **1.0.0-beta.14**. The offline tests pass; in the Forever client it is checked while
+Version **1.0.0-beta.15**. The offline tests pass; in the Forever client it is checked while
 playing (what exactly: [docs/TESTING.en.md](docs/TESTING.en.md)).
 
 ## Features
