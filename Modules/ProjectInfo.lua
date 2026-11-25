@@ -1,12 +1,14 @@
 -- Modules/ProjectInfo.lua
 -- Facts for Settings / About (v0.10.0). Only confirmed values go here:
 -- nil hides the line or link in the window. Nothing is guessed: no
--- author name, license, repository, CurseForge page, Discord server or
--- donation page until the author confirms it.
+-- license, repository, CurseForge page, Discord server or donation page
+-- until the author confirms it. The author and the copyright are from
+-- the approved Settings specification (v1.0.0-beta.4).
 local _, ns = ...
 
 ns.ProjectInfo = {
-    author = nil,   -- e.g. "Name"; hidden while nil
+    author = "Nedisan",
+    copyright = "© 2026 Nedisan",
     license = nil,  -- e.g. "MIT"; hidden while nil (LICENSE file needed)
     thanks = nil,   -- e.g. "Testers: ..."; hidden while nil
     game = "World of Warcraft: Forever",

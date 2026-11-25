@@ -1,7 +1,8 @@
 -- tools/changelog.lua
 -- Builds Modules/ChangelogData.lua (Settings / Changelog in the game) from
--- CHANGELOG.md, so the window shows the real history and nothing else.
--- Run from the addon root after editing CHANGELOG.md:
+-- CHANGELOG.md (Russian) and CHANGELOG.en.md (English), so the window shows
+-- the real history and nothing else.
+-- Run from the addon root after editing either file:
 --   lua5.1 tools/changelog.lua
 -- tests/run.lua fails when the generated file is out of date.
 --
@@ -76,14 +77,8 @@ local function q(s)
     return string.format("%q", s):gsub("\\\n", "\\n")
 end
 
-function M.Render(versions)
-    local out = {
-        "-- Modules/ChangelogData.lua",
-        "-- GENERATED from CHANGELOG.md by tools/changelog.lua. Do not edit by hand.",
-        "local _, ns = ...",
-        "",
-        "ns.CHANGELOG = {",
-    }
+local function renderTable(out, name, versions)
+    out[#out + 1] = name .. " = {"
     for _, v in ipairs(versions) do
         out[#out + 1] = "    {"
         out[#out + 1] = "        version = " .. q(v.version) .. ","
@@ -101,13 +96,34 @@ function M.Render(versions)
         out[#out + 1] = "    },"
     end
     out[#out + 1] = "}"
+end
+
+-- ru, en: parsed versions; en is optional.
+function M.Render(ru, en)
+    local out = {
+        "-- Modules/ChangelogData.lua",
+        "-- GENERATED from CHANGELOG.md and CHANGELOG.en.md by tools/changelog.lua. Do not edit by hand.",
+        "local _, ns = ...",
+        "",
+    }
+    renderTable(out, "ns.CHANGELOG", ru)
+    if en then renderTable(out, "ns.CHANGELOG_EN", en) end
     return table.concat(out, "\n") .. "\n"
+end
+
+local function read(path)
+    local file = io.open(path)
+    if not file then return nil end
+    local text = file:read("*a")
+    file:close()
+    return text
 end
 
 function M.Build(root)
     root = root or "."
-    local markdown = assert(io.open(root .. "/CHANGELOG.md")):read("*a")
-    return M.Render(M.Parse(markdown))
+    local ru = assert(read(root .. "/CHANGELOG.md"), "CHANGELOG.md not found")
+    local en = read(root .. "/CHANGELOG.en.md")
+    return M.Render(M.Parse(ru), en and M.Parse(en))
 end
 
 if not ... or ... ~= "changelog" then

@@ -36,13 +36,27 @@
 --   -- closed one; playtime.longestAt = start of the longest session.
 --   zoneStats = { since = t, current = { key, t },
 --                 zones = { [zoneKey] = { time, steps, visits, last } } }
+--   -- Schema 6 (v0.14.0): Hall of Memories, catalog 1.0.
+--   achievements = { seeded, unlocked = { [id] = unlock }, legacy = { [oldId] = time | 0 } }
+--   progress = see Modules/Progress.lua (created on first use)
 -- }
+-- account = { achievements = { seeded, unlocked = { [id] = unlock } } }  (schema 6)
+-- unlock = { at = time | nil (date unknown), seen = time | nil (when the
+--            addon noticed it), src = "live" | "seed" | "legacy",
+--            cat = catalog version, cond = condition version }
+-- migrations = { { from, to, at, before = totals, after = totals } }  last 10
+--
+-- Safety (v0.14.0): a migration runs on a copy; the copy is used only if
+-- no total (characters, screenshots, steps, days, zones, achievements)
+-- went down. A file from a NEWER version of the addon is never migrated
+-- or rewritten: the addon runs read-only on an empty scratch table.
+-- Unknown top-level fields are kept as they are.
 local _, ns = ...
 
 local Database = {}
 ns.Database = Database
 
-Database.SCHEMA_VERSION = 5
+Database.SCHEMA_VERSION = 6
 Database.MAX_SHOTS = 5000 -- per character; counters are never trimmed
 Database.MAX_JOURNEY = 500 -- per character; levels and firsts only, far below this
 
@@ -62,24 +76,118 @@ Database.SETTINGS = {
     -- Settings / General (v0.10.0).
     rememberTab = { kind = "boolean", default = true },
     toastDuration = { kind = "enum", default = 5, values = { 3, 5, 10 } },
+    -- Appearance (v0.15.0): Obsidian Journal fonts; off = the client's own.
+    fonts = { kind = "boolean", default = true },
+    -- Notifications (v0.17.0): three kinds, where, how large, merging.
+    notifyMini = { kind = "boolean", default = true },      -- screenshot saved
+    notifyDiscovery = { kind = "boolean", default = true }, -- new location, achievement
+    notifyLegendary = { kind = "boolean", default = true }, -- epic / legendary moments
+    notifyPosition = { kind = "enum", default = "top", values = { "top", "middle", "bottom" } },
+    notifySize = { kind = "enum", default = "normal", values = { "small", "normal", "large" } },
+    notifyMerge = { kind = "boolean", default = true },
+    -- v0.18.0: zone illustrations of the optional ForeverMemories_ArtPack.
+    artpack = { kind = "boolean", default = true },
+    -- v1.0.0-beta.4: short decorative effects (the fade-in of notifications).
+    animations = { kind = "boolean", default = true },
+    -- v1.0.0-beta.6: seconds on screen for each kind (mini takes the old
+    -- toastDuration, which is kept for older versions), and large cards
+    -- waiting for the end of combat.
+    durationMini = { kind = "enum", default = 5, values = { 3, 5, 10 } },
+    durationDiscovery = { kind = "enum", default = 15, values = { 10, 15, 20 } },
+    durationLegendary = { kind = "enum", default = 10, values = { 7, 10, 15 } },
+    notifyCombatDefer = { kind = "boolean", default = true },
 }
 
 -- Settings on the Settings / General page: "Restore defaults" resets only
 -- these (and the window position). Capture settings, statistics and
 -- history are never touched by it.
 Database.GENERAL_SETTINGS = { "locale", "scale", "minimap", "rememberTab", "notifications", "sound", "toastDuration" }
+-- v0.17.0: Settings / Appearance and Settings / Notifications have their
+-- own "Restore defaults"; each resets only its page.
+-- v1.0.0-beta.4: language, minimap and last tab moved to Settings / General;
+-- "Reset appearance" keeps them (and resets the window size and position).
+Database.APPEARANCE_SETTINGS = { "scale", "fonts", "artpack", "animations" }
+Database.NOTIFY_SETTINGS = { "notifications", "sound", "toastDuration", "durationMini", "durationDiscovery",
+                             "durationLegendary", "notifyCombatDefer", "notifyMini", "notifyDiscovery",
+                             "notifyLegendary", "notifyPosition", "notifySize", "notifyMerge" }
+
+function Database.ResetKeys(db, keys)
+    for _, key in ipairs(keys) do
+        db.settings[key] = Database.SETTINGS[key].default
+    end
+end
+
+-- v1.0.0-beta.6: own place and scale of each notification kind, set in
+-- Settings / Notifications / Edit position.
+--   ui.notify = { [kind] = { point, x, y, scale, locked } }
+Database.NOTIFY_POINTS = { TOP = true, CENTER = true, BOTTOM = true, LEFT = true, RIGHT = true,
+    TOPLEFT = true, TOPRIGHT = true, BOTTOMLEFT = true, BOTTOMRIGHT = true }
+function Database.ValidateNotifyLayout(ui, repaired)
+    if ui.notify == nil then
+        return
+    end
+    if type(ui.notify) ~= "table" then
+        ui.notify = nil
+        repaired[#repaired + 1] = "ui.notify"
+        return
+    end
+    for kind, entry in pairs(ui.notify) do
+        local ok = (kind == "mini" or kind == "discovery" or kind == "legendary") and type(entry) == "table"
+            and Database.NOTIFY_POINTS[entry.point]
+            and type(entry.x) == "number" and entry.x == entry.x and math.abs(entry.x) <= 4000
+            and type(entry.y) == "number" and entry.y == entry.y and math.abs(entry.y) <= 4000
+            and type(entry.scale) == "number" and entry.scale >= 0.5 and entry.scale <= 2
+        if ok then
+            entry.locked = entry.locked == true or nil
+        else
+            ui.notify[kind] = nil
+            repaired[#repaired + 1] = "ui.notify." .. tostring(kind)
+        end
+    end
+end
+
+-- Settings / Data "Reset all settings" (v1.0.0-beta.4): every setting,
+-- Auto capture and its event switches included, and the window size and
+-- position. History, statistics and earned achievements are not touched.
+function Database.ResetAllSettings(db)
+    for key, spec in pairs(Database.SETTINGS) do
+        db.settings[key] = spec.default
+    end
+    for _, id in ipairs(ns.Registry.EVENTS) do
+        db.settings.events[id] = true
+    end
+    db.ui.point, db.ui.size = nil, nil
+    db.ui.notify = nil -- own places of the notifications (v1.0.0-beta.6)
+end
 
 function Database.ResetGeneral(db)
     for _, key in ipairs(Database.GENERAL_SETTINGS) do
         db.settings[key] = Database.SETTINGS[key].default
     end
-    db.ui.point = nil
+    db.ui.point, db.ui.size = nil, nil
 end
 
 local TOP_LEVEL = {
     schemaVersion = true, settings = true, ui = true, counters = true,
-    characters = true, legacy = true, zoneDump = true,
+    characters = true, legacy = true, zoneDump = true, account = true, migrations = true,
 }
+Database.MAX_MIGRATION_REPORTS = 10
+
+-- v0.13.0 achievement IDs -> catalog 1.0 IDs (same condition).
+-- YEAR_OF_MEMORIES was "365 days with play", so it becomes
+-- fm.anniversaries.active365 (not fm.anniversaries.year, whose English
+-- title is the same but whose condition is 365 days since the start).
+Database.LEGACY_ACHIEVEMENTS = {
+    FIRST_MEMORY = "fm.memories.first", PHOTOGRAPHER = "fm.memories.photographer",
+    MEMORY_KEEPER = "fm.memories.keeper", MASTER_PHOTOGRAPHER = "fm.memories.master",
+    FIRST_STEPS = "fm.steps.first", WANDERER = "fm.steps.wanderer",
+    TRAVELER = "fm.steps.traveler", ENDLESS_JOURNEY = "fm.steps.endless",
+    EXPLORER = "fm.locations.explorer", EK_EXPLORER = "fm.locations.east",
+    KALIMDOR_EXPLORER = "fm.locations.kalimdor", MASTER_OF_AZEROTH = "fm.locations.world",
+    LIVING_HISTORY = "fm.anniversaries.active30", SEASON_OF_ADVENTURES = "fm.anniversaries.active90",
+    YEAR_OF_MEMORIES = "fm.anniversaries.active365",
+}
+Database.CATALOG_VERSION = "1.0"
 
 local function tableOf(parent, key, repaired, path)
     if type(parent[key]) ~= "table" then
@@ -257,7 +365,113 @@ Database.MIGRATIONS = {
             end
         end
     end,
+
+    -- 0.13.0 -> 0.14.0: Hall of Memories. Earned achievements keep their
+    -- date (or stay "date unknown"); nothing is earned or lost here.
+    [5] = function(db)
+        if type(db.characters) ~= "table" then
+            return
+        end
+        for _, character in pairs(db.characters) do
+            if type(character) == "table" then
+                Database.UpgradeAchievements(character)
+            end
+        end
+    end,
 }
+
+-- v0.13.0 achievements -> schema 6. Idempotent: running it twice changes
+-- nothing; an unlock already present is never overwritten.
+function Database.UpgradeAchievements(character)
+    local a = character.achievements
+    if type(a) ~= "table" then
+        return
+    end
+    if type(a.unlocked) ~= "table" then
+        a.unlocked = {}
+    end
+    if type(a.done) == "table" then
+        a.legacy = type(a.legacy) == "table" and a.legacy or {}
+        for oldId, at in pairs(a.done) do
+            local id = Database.LEGACY_ACHIEVEMENTS[oldId]
+            local known = type(at) == "number" and at > 0 and at or nil
+            if id and not a.unlocked[id] then
+                a.unlocked[id] = { at = known, seen = known, src = "legacy", cat = Database.CATALOG_VERSION, cond = 1 }
+            end
+            a.legacy[oldId] = at
+        end
+        a.done = nil
+    end
+end
+
+-- Totals that a migration must never lower.
+function Database.Totals(db)
+    local t = { characters = 0, shots = 0, steps = 0, days = 0, zones = 0, achievements = 0 }
+    if type(db) ~= "table" or type(db.characters) ~= "table" then
+        return t
+    end
+    local days = {}
+    for _, c in pairs(db.characters) do
+        if type(c) == "table" then
+            t.characters = t.characters + 1
+            t.shots = t.shots + (type(c.shotsTotal) == "number" and c.shotsTotal or 0)
+            local steps = type(c.steps) == "table" and c.steps or {}
+            t.steps = t.steps + math.floor(type(steps.total) == "number" and steps.total or 0)
+            for _, map in ipairs({ type(c.playtime) == "table" and c.playtime.days, steps.days, c.shotsByDay }) do
+                if type(map) == "table" then
+                    for day, value in pairs(map) do
+                        if type(value) == "number" and value > 0 then
+                            days[day] = true
+                        end
+                    end
+                end
+            end
+            for _ in pairs(type(c.visited) == "table" and c.visited or {}) do
+                t.zones = t.zones + 1
+            end
+            local a = type(c.achievements) == "table" and c.achievements or {}
+            local earned = {}
+            for _, old in pairs({ a.done or false, a.legacy or false }) do
+                for id in pairs(type(old) == "table" and old or {}) do
+                    earned[Database.LEGACY_ACHIEVEMENTS[id] or id] = true
+                end
+            end
+            for id in pairs(type(a.unlocked) == "table" and a.unlocked or {}) do
+                earned[id] = true
+            end
+            for _ in pairs(earned) do
+                t.achievements = t.achievements + 1
+            end
+        end
+    end
+    for _ in pairs(days) do
+        t.days = t.days + 1
+    end
+    return t
+end
+
+-- Names of the totals that went down from `before` to `after`.
+function Database.Lost(before, after)
+    local lost = {}
+    for key, value in pairs(before) do
+        if (after[key] or 0) < value then
+            lost[#lost + 1] = key
+        end
+    end
+    table.sort(lost)
+    return lost
+end
+
+function Database.Copy(value)
+    if type(value) ~= "table" then
+        return value
+    end
+    local copy = {}
+    for k, v in pairs(value) do
+        copy[Database.Copy(k)] = Database.Copy(v)
+    end
+    return copy
+end
 
 -- Journey kinds that come from older shot records (real dates).
 local JOURNEY_FROM_SHOT = {
@@ -377,6 +591,10 @@ local function validateSettings(db, repaired)
                 repaired[#repaired + 1] = "settings." .. tostring(key)
             end
         end
+    end
+    -- v1.0.0-beta.6: the mini card keeps the duration chosen before.
+    if settings.durationMini == nil and validSetting(Database.SETTINGS.durationMini, settings.toastDuration) then
+        settings.durationMini = settings.toastDuration
     end
     for key, spec in pairs(Database.SETTINGS) do
         if settings[key] == nil then
@@ -538,24 +756,76 @@ local function validateZoneStats(character, path, repaired)
     end
 end
 
--- Adventure Achievements (v0.13.0): { seeded, done = { [id] = time | 0 } }.
+-- Hall of Memories (schema 6): { seeded, unlocked = { [id] = unlock }, legacy }.
+-- An unlock whose ID is not in this catalog is KEPT (a newer catalog may
+-- know it); only malformed entries are dropped.
+local function validateUnlocks(a, path, repaired)
+    a.seeded = a.seeded == true
+    if type(a.unlocked) ~= "table" then
+        if a.unlocked ~= nil then
+            repaired[#repaired + 1] = path .. ".unlocked"
+        end
+        a.unlocked = {}
+    end
+    for id, u in pairs(a.unlocked) do
+        if type(id) ~= "string" or type(u) ~= "table" then
+            a.unlocked[id] = nil
+            repaired[#repaired + 1] = path .. ".unlocked." .. tostring(id)
+        else
+            if u.at ~= nil and not number(u.at) then u.at = nil end
+            if u.seen ~= nil and not number(u.seen) then u.seen = nil end
+            if u.src ~= "live" and u.src ~= "seed" and u.src ~= "legacy" then u.src = "seed" end
+            if type(u.cat) ~= "string" then u.cat = Database.CATALOG_VERSION end
+            if not number(u.cond) then u.cond = 1 end
+        end
+    end
+    if a.legacy ~= nil and type(a.legacy) ~= "table" then
+        a.legacy = nil
+    end
+end
+Database.ValidateUnlocks = validateUnlocks
+
 local function validateAchievements(character, path, repaired)
     local a = character.achievements
     if a == nil then
         return
     end
-    if type(a) ~= "table" or type(a.done) ~= "table" then
+    if type(a) ~= "table" then
         character.achievements = nil
         repaired[#repaired + 1] = path .. ".achievements"
         return
     end
-    a.seeded = a.seeded == true
-    for id, at in pairs(a.done) do
-        if type(id) ~= "string" or not number(at) or at < 0 then
-            a.done[id] = nil
-            repaired[#repaired + 1] = path .. ".achievements." .. tostring(id)
+    Database.UpgradeAchievements(character) -- a v0.13 table restored from a backup
+    validateUnlocks(a, path .. ".achievements", repaired)
+end
+
+local function validateProgress(character, path, repaired)
+    local p = character.progress
+    if p == nil then
+        return
+    end
+    if type(p) ~= "table" then
+        character.progress = nil
+        repaired[#repaired + 1] = path .. ".progress"
+        return
+    end
+    for _, key in ipairs({ "maxMoney", "quests", "level" }) do
+        if p[key] ~= nil and not number(p[key]) then
+            p[key] = nil
         end
     end
+    for _, key in ipairs({ "exalted", "professions", "professionsMax" }) do
+        if p[key] ~= nil and type(p[key]) ~= "table" then
+            p[key] = nil
+        end
+    end
+    if p.faction ~= nil and p.faction ~= "Alliance" and p.faction ~= "Horde" then
+        p.faction = nil
+    end
+    if p.race ~= nil and type(p.race) ~= "string" then
+        p.race = nil
+    end
+    p.levelCap = p.levelCap == true or nil
 end
 
 local function validateJourney(character, path, repaired)
@@ -597,14 +867,85 @@ local function validateCharacters(db, repaired)
             validateJourney(character, "characters." .. key, repaired)
             validateZoneStats(character, "characters." .. key, repaired)
             validateAchievements(character, "characters." .. key, repaired)
+            validateProgress(character, "characters." .. key, repaired)
         end
     end
 end
 
--- Takes whatever the client loaded and returns a valid table plus the list
--- of paths that had to be reset.
+-- Brings a table to the current schema and validates it (in place).
+local function upgrade(db, version, repaired)
+    for v = version, Database.SCHEMA_VERSION - 1 do
+        if Database.MIGRATIONS[v] then
+            Database.MIGRATIONS[v](db)
+        end
+        db.schemaVersion = v + 1
+    end
+    db.schemaVersion = Database.SCHEMA_VERSION
+
+    for key in pairs(db) do
+        if not TOP_LEVEL[key] then
+            -- Unknown field (a newer or older version, a hand edit): kept.
+            repaired[#repaired + 1] = "kept unknown field " .. tostring(key)
+        end
+    end
+
+    validateSettings(db, repaired)
+    validateCharacters(db, repaired)
+    local ui = tableOf(db, "ui", repaired, "ui")
+    if ui.size ~= nil and (type(ui.size) ~= "table" or not number(ui.size[1]) or not number(ui.size[2])) then
+        ui.size = nil
+        repaired[#repaired + 1] = "ui.size"
+    end
+    -- v0.16.0: pinned achievements (IDs, at most three) and open groups
+    -- of the Auto capture tab.
+    if ui.pins ~= nil then
+        local clean = {}
+        if type(ui.pins) == "table" then
+            for _, id in ipairs(ui.pins) do
+                if type(id) == "string" and #clean < 3 then
+                    clean[#clean + 1] = id
+                end
+            end
+        end
+        if type(ui.pins) ~= "table" or #clean ~= #ui.pins then
+            repaired[#repaired + 1] = "ui.pins"
+        end
+        ui.pins = clean
+    end
+    if ui.captureOpen ~= nil and type(ui.captureOpen) ~= "table" then
+        ui.captureOpen = nil
+        repaired[#repaired + 1] = "ui.captureOpen"
+    end
+    Database.ValidateNotifyLayout(ui, repaired)
+    tableOf(db, "counters", repaired, "counters")
+    if type(db.counters.unattributed) ~= "number" then
+        db.counters.unattributed = 0
+    end
+    if db.legacy ~= nil and type(db.legacy) ~= "table" then
+        db.legacy = nil
+    end
+    if db.zoneDump ~= nil and type(db.zoneDump) ~= "table" then
+        db.zoneDump = nil
+    end
+    local account = tableOf(db, "account", repaired, "account")
+    local a = tableOf(account, "achievements", repaired, "account.achievements")
+    validateUnlocks(a, "account.achievements", repaired)
+    if db.migrations ~= nil and type(db.migrations) ~= "table" then
+        db.migrations = nil
+    end
+    return db
+end
+
+-- Takes whatever the client loaded and returns a valid table, the list of
+-- paths that had to be reset, and a status:
+--   { migrated = { from, to } | nil,
+--     incompatible = schema | nil  (a newer addon wrote it: not touched),
+--     unsafe = { lost totals } | nil (migration would lose data: not touched) }
+-- With incompatible or unsafe, the returned table is a fresh scratch table
+-- and `raw` is left exactly as it was: the caller must not save over it.
 function Database.Load(raw)
     local repaired = {}
+    local status = {}
     local db = raw
     if type(db) ~= "table" then
         if db ~= nil then
@@ -624,35 +965,31 @@ function Database.Load(raw)
             version = Database.SCHEMA_VERSION
         end
     end
-    for v = version, Database.SCHEMA_VERSION - 1 do
-        if Database.MIGRATIONS[v] then
-            Database.MIGRATIONS[v](db)
-        end
-        db.schemaVersion = v + 1
-    end
-    db.schemaVersion = Database.SCHEMA_VERSION
-
-    for key in pairs(db) do
-        if not TOP_LEVEL[key] then
-            db[key] = nil
-            repaired[#repaired + 1] = tostring(key)
-        end
+    if version > Database.SCHEMA_VERSION then
+        status.incompatible = version
+        return upgrade({}, Database.SCHEMA_VERSION, {}), repaired, status
     end
 
-    validateSettings(db, repaired)
-    validateCharacters(db, repaired)
-    tableOf(db, "ui", repaired, "ui")
-    tableOf(db, "counters", repaired, "counters")
-    if type(db.counters.unattributed) ~= "number" then
-        db.counters.unattributed = 0
+    if version < Database.SCHEMA_VERSION and db == raw then
+        -- Migrate a copy; keep it only if nothing was lost.
+        local before = Database.Totals(raw)
+        local copy = upgrade(Database.Copy(raw), version, repaired)
+        local after = Database.Totals(copy)
+        local lost = version >= 5 and Database.Lost(before, after) or {}
+        if #lost > 0 then
+            status.unsafe = lost
+            return upgrade({}, Database.SCHEMA_VERSION, {}), repaired, status
+        end
+        status.migrated = { from = version, to = Database.SCHEMA_VERSION }
+        copy.migrations = type(copy.migrations) == "table" and copy.migrations or {}
+        table.insert(copy.migrations, { from = version, to = Database.SCHEMA_VERSION,
+            at = type(time) == "function" and time() or nil, before = before, after = after })
+        while #copy.migrations > Database.MAX_MIGRATION_REPORTS do
+            table.remove(copy.migrations, 1)
+        end
+        return copy, repaired, status
     end
-    if db.legacy ~= nil and type(db.legacy) ~= "table" then
-        db.legacy = nil
-    end
-    if db.zoneDump ~= nil and type(db.zoneDump) ~= "table" then
-        db.zoneDump = nil
-    end
-    return db, repaired
+    return upgrade(db, version, repaired), repaired, status
 end
 
 -- Per-character storage, created on first use. Name, realm, class and
@@ -670,7 +1007,7 @@ function Database.Character(db, key, info)
         if info.guid then
             if character.guid and character.guid ~= info.guid then
                 -- Same name and realm, different GUID: recorded for
-                -- diagnostics (see API_COMPATIBILITY.md), data is kept.
+                -- diagnostics (see docs/TESTING.md), data is kept.
                 character.guidChanged = true
             end
             character.guid = info.guid

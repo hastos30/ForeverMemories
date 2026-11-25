@@ -28,13 +28,16 @@ end
 
 -- Short statistics of any saved character (from its own data only).
 function DataTools.Summary(character)
-    local zones, days = 0, 0
+    local zones, days, lastDay = 0, 0, nil
     for _ in pairs(character.visited or {}) do
         zones = zones + 1
     end
-    for _, seconds in pairs(character.playtime and character.playtime.days or {}) do
+    for day, seconds in pairs(character.playtime and character.playtime.days or {}) do
         if seconds > 0 then
             days = days + 1
+            if type(day) == "string" and (not lastDay or day > lastDay) then
+                lastDay = day -- "YYYY-MM-DD" keys sort as dates
+            end
         end
     end
     return {
@@ -43,6 +46,8 @@ function DataTools.Summary(character)
         zones = zones,
         playtime = math.floor(character.playtime and character.playtime.total or 0),
         days = days,
+        lastDay = lastDay, -- v1.0.0-beta.4: last day with play
+        level = character.progress and character.progress.level,
         since = character.journey and character.journey.started,
     }
 end
@@ -187,9 +192,14 @@ function DataTools.CheckBackup(text)
     local version = type(data.addonVersion) == "string" and data.addonVersion or nil
     data.createdAt, data.addonVersion = nil, nil
     -- The same migration and validation as a SavedVariables file.
-    local ok, db, repaired = pcall(ns.Database.Load, data)
+    local ok, db, repaired, status = pcall(ns.Database.Load, data)
     if not ok or type(db) ~= "table" then
         return nil, "structure"
+    end
+    if status.incompatible then
+        return nil, "newer"
+    elseif status.unsafe then
+        return nil, "structure" -- the migration would lose data: refused
     end
     local storage = ns.Database.Storage(db)
     return {

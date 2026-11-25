@@ -24,22 +24,29 @@ local L = ns.L
 local W = ns.Widgets
 local UI = ns.UI
 
-local WIDTH = UI.CONTENT_WIDTH
+-- v0.16.0: a vertical icon menu on the left; the lifetime dashboard is
+-- shown only on Overview (and for All characters).
+local MENU_W = 52                 -- icon column + gap
+local MENU_ICON = 40
+local MENU_NAMED_W = 170          -- v1.0.0-beta.5: icons with names in a wide window
+local MENU_NAMES_FROM = 720       -- content width (as in Settings)
+local named = false
+local WIDTH = UI.CONTENT_WIDTH - MENU_W
 local INNER = WIDTH - 8 -- FlexList rows leave room for the scroll bar
-local BUTTONS_TOP = 222  -- two rows of sub-view buttons (v0.12.0)
-local VIEW_TOP = 294     -- sub-views start below the dashboard and buttons
-local VIEW_HEIGHT = 276  -- content height (570) - VIEW_TOP
+-- v1.0.1: the widths follow the window; set again on every build.
+local function measure()
+    named = UI.CONTENT_WIDTH >= MENU_NAMES_FROM
+    MENU_W = named and MENU_NAMED_W or 52
+    WIDTH = UI.CONTENT_WIDTH - MENU_W
+    INNER = WIDTH - 8
+end
+local HEAD_TOP = 52      -- below the character line and the mode switch
+local DASH_TOP = HEAD_TOP + 2 * 80 + 8 + 10 -- below the dashboard
+local VIEW_TOP = HEAD_TOP
+local CONTENT_HEIGHT = 570 -- content height of the default window
 
-local ICON = {
-    shots = "Interface\\Icons\\INV_Misc_Spyglass_03",
-    steps = "Interface\\Icons\\Ability_Rogue_Sprint",
-    zones = "Interface\\Icons\\INV_Misc_Map_01",
-    newZones = "Interface\\Icons\\Ability_Hunter_Pathfinding",
-    playtime = "Interface\\Icons\\INV_Misc_PocketWatch_01",
-    days = "Interface\\Icons\\INV_Misc_Book_09",
-    calendar = "Interface\\Icons\\INV_Misc_Note_01",
-    sessions = "Interface\\Icons\\INV_Misc_PocketWatch_02",
-}
+-- v1.0.0-beta.8: the addon's own icons (UI/Media.lua) instead of game icons.
+local ICON = ns.Media.ICON
 UI.ICON = ICON
 
 -- Fill colors of the calendar levels 0..4 and of "no data".
@@ -118,9 +125,16 @@ COMMON.note = {
     make = function(parent)
         local row = CreateFrame("Frame", nil, parent)
         row.text = W.Text(row, "", "GameFontHighlightSmall", W.COLORS.muted)
-        row.text:SetPoint("LEFT", 0, 0)
-        row.text:SetPoint("RIGHT", 0, 0)
+        -- v1.0.1: long notes wrap instead of ending in "...".
+        row.text:SetPoint("TOPLEFT", 0, -6)
+        row.text:SetPoint("TOPRIGHT", 0, -6)
+        row.text:SetJustifyH("LEFT")
+        if row.text.SetJustifyV then row.text:SetJustifyV("TOP") end
+        if row.text.SetWordWrap then row.text:SetWordWrap(true) end
         return row
+    end,
+    measure = function(item, width)
+        return W.TextHeight(item.text, width) + 12
     end,
     fill = function(row, item)
         row.text:SetText(item.text)
@@ -148,7 +162,7 @@ COMMON.value = {
         return row
     end,
     fill = function(row, item)
-        row.icon:SetTexture(item.icon)
+        row.icon:SetIcon(item.icon)
         row.label:SetText(item.label)
         row.value:SetText(item.value)
     end,
@@ -207,9 +221,9 @@ end
 local function newView(parent, own, top)
     top = top or VIEW_TOP
     local view = CreateFrame("Frame", nil, parent)
-    view:SetPoint("TOPLEFT", 0, -top)
+    view:SetPoint("TOPLEFT", MENU_W, -top)
     view:SetPoint("BOTTOMRIGHT", 0, 0)
-    view.list = W.FlexList(view, WIDTH, VIEW_HEIGHT + VIEW_TOP - top, kindsWith(own))
+    view.list = W.Stretch(W.FlexList(view, WIDTH, CONTENT_HEIGHT - top, kindsWith(own)))
     view.list:SetPoint("TOPLEFT", 0, 0)
     return view
 end
@@ -267,20 +281,22 @@ local function fillChart(chart, item)
             column:ClearAllPoints()
             column:SetSize(slot, CHART_BARS + 40)
             column:SetPoint("BOTTOMLEFT", (i - 1) * slot, 0)
-            local isToday = bar.day == today
+            local isToday = bar.day == today or bar.last == today
             column.bar:SetWidth(math.max(2, slot * 0.62))
             column.bar:SetHeight(math.max(1, top > 0 and bar.value / top * CHART_BARS or 0))
             column.bar:SetShown(bar.value > 0) -- a day without activity has no bar
             local c = isToday and W.COLORS.gold or LEVEL_COLORS[2]
             column.bar:SetColorTexture(c[1], c[2], c[3], isToday and 1 or 0.9)
             -- 7 days: every value and date; 30 days: dates every 5th day.
-            column.value:SetText(n <= 7 and bar.label or "")
+            -- v1.0.0-beta.8: a day without activity shows a dash, not "0".
+            column.value:SetText(n <= 7 and (bar.value > 0 and bar.label or "—") or "")
             local d = date("*t", ns.Util.DayStart(bar.day))
-            local dated = n <= 7 or isToday or (n - i) % 5 == 0
+            local dated = n <= 7 or isToday or (n - i) % (bar.last and 3 or 5) == 0
             column.date:SetText(dated and string.format("%02d.%02d", d.day, d.month) or "")
             setColor(column.date, isToday and W.COLORS.heading or W.COLORS.muted)
             column.tip = bar.tip
-            column.dayLabel = ns.History.DayLabel(bar.day)
+            column.dayLabel = bar.last and (ns.History.DayLabel(bar.day) .. " - " .. ns.History.DayLabel(bar.last))
+                or ns.History.DayLabel(bar.day)
         end
     end
 end
@@ -291,7 +307,7 @@ local function makeChartHeader(parent)
     local row = CreateFrame("Frame", nil, parent)
     row.text = W.Text(row, "", "GameFontNormalLarge", W.COLORS.heading)
     row.text:SetPoint("LEFT", 0, 0)
-    row.switch = W.Segmented(row, { { 7, L.DAYS_7 }, { 30, L.DAYS_30 } }, 150, function(value)
+    row.switch = W.Segmented(row, { { 7, L.DAYS_7 }, { 30, L.DAYS_30 }, { 90, L.DAYS_90 } }, 210, function(value)
         if row.onSelect then row.onSelect(value) end
     end)
     row.switch:SetPoint("RIGHT", 0, 0)
@@ -305,9 +321,23 @@ local function fillChartHeader(row, item)
     row.onSelect = item.onSelect
 end
 
+-- 7 and 30 days: one bar per day. 90 days (v0.16.0): one bar per week
+-- (13 weeks, the last one ends today); bar.day is its first day.
 local function chartBars(days, value, label, tip)
     local today = ns.Util.DayKey(ns.API.Time())
     local bars = {}
+    if days > MAX_COLUMNS then
+        local weeks = math.ceil(days / 7)
+        for w = 1, weeks do
+            local last = ns.Util.DayBefore(today, (weeks - w) * 7)
+            local sum = 0
+            for k = 0, 6 do
+                sum = sum + (value(ns.Util.DayBefore(last, k)) or 0)
+            end
+            bars[w] = { day = ns.Util.DayBefore(last, 6), last = last, value = sum, label = label(sum), tip = tip(sum) }
+        end
+        return bars
+    end
     for i = 1, days do
         local day = ns.Util.DayBefore(today, days - i)
         local v = value(day)
@@ -333,12 +363,14 @@ SHOT_TYPES[#SHOT_TYPES + 1] = "PASSIVE"
 SHOT_TYPES[#SHOT_TYPES + 1] = "MANUAL"
 
 local function newShotFilter()
-    return { text = "", type = "all", zone = nil, from = nil, to = nil, fromText = "", toText = "", order = "new" }
+    return { text = "", type = "all", zone = nil, from = nil, to = nil, fromText = "", toText = "", order = "new",
+             show = "all" }
 end
 
 -- True when the filter differs from "all shots, newest first".
 local function filtered(f)
     return f.text ~= "" or f.type ~= "all" or f.zone ~= nil or f.fromText ~= "" or f.toText ~= "" or f.order ~= "new"
+        or f.show ~= "all"
 end
 
 local function buildShots(parent)
@@ -349,7 +381,8 @@ local function buildShots(parent)
         view:Refresh(nil, true)
     end
     local function dateBox(row, key)
-        local box = W.SearchBox(row, L.DATE_HINT, 120, function(text)
+        -- v1.0.0-beta.5: narrower date boxes in a compact window.
+        local box = W.SearchBox(row, L.DATE_HINT, INNER < 440 and 92 or 120, function(text)
             local f = state.filter
             f[key .. "Text"] = text
             f[key] = ns.Util.ParseDate(text)
@@ -365,11 +398,35 @@ local function buildShots(parent)
                 local row = W.Panel(p, W.COLORS.panel, W.COLORS.divider)
                 row.inner = UI.MakeShotRow(row, 26)
                 row.inner:SetPoint("TOPLEFT", 8, -4)
-                row.inner:SetPoint("BOTTOMRIGHT", 0, 4)
+                row.inner:SetPoint("BOTTOMRIGHT", -30, 4)
+                -- Favorite (v0.16.0): a star; only for the current character.
+                row.star = CreateFrame("Button", nil, row)
+                row.star:SetSize(22, 22)
+                row.star:SetPoint("RIGHT", -6, 0)
+                row.star.icon = row.star:CreateTexture(nil, "ARTWORK")
+                row.star.icon:SetSize(18, 18)
+                row.star.icon:SetPoint("CENTER")
+                row.star.icon:SetTexture(ns.Media.DECOR.accent_star)
+                -- v1.0.1: only the star in the middle of the divider accent
+                -- (the whole picture squeezed into 22 px looked like an arrow).
+                row.star.icon:SetTexCoord(unpack(ns.Media.CROP.star))
+                row.star:SetScript("OnClick", function(self)
+                    if self.record and not viewedCharacter() then
+                        ns.History.ToggleFavorite(self.record)
+                        refresh()
+                    end
+                end)
+                W.Tooltip(row.star, function()
+                    return viewedCharacter() and L.TIP_FAVORITE_READ_ONLY or L.TIP_FAVORITE
+                end, L.FAVORITE)
                 return row
             end,
             fill = function(row, item)
-                UI.FillShotRow(row.inner, item.record, false)
+                UI.FillShotRow(row.inner, item.record, item.withDate)
+                row.star.record = item.record
+                local fav = item.record.fav and true or false
+                row.star.icon:SetAlpha(fav and 1 or 0.25)
+                row.star.icon:SetDesaturated(not fav)
             end,
         },
         shotSearch = {
@@ -395,6 +452,23 @@ local function buildShots(parent)
                 end
                 row.toggle:SetLabel(L.FILTERS .. (state.open and "  v" or "  >"))
                 row.toggle:SetSelected(state.open)
+            end,
+        },
+        shotShow = {
+            height = 34,
+            make = function(p)
+                local row = CreateFrame("Frame", nil, p)
+                row.switch = W.Segmented(row, { { "all", L.SHOW_ALL }, { "fav", L.SHOW_FAVORITES },
+                    { "important", L.SHOW_IMPORTANT } }, math.min(330, INNER), function(value)
+                    state.filter.show = value
+                    refresh()
+                end)
+                row.switch:SetPoint("LEFT", 0, 0)
+                W.Tooltip(row.switch, L.TIP_SHOW_IMPORTANT, L.SHOW_IMPORTANT)
+                return row
+            end,
+            fill = function(row)
+                row.switch:SetValue(state.filter.show)
             end,
         },
         shotFilters = {
@@ -427,8 +501,9 @@ local function buildShots(parent)
                 W.Tooltip(row.to, L.TIP_FILTER_DATES, L.DATE_RANGE)
                 row.order = W.Dropdown(row, {
                     { value = "new", text = L.SORT_NEW }, { value = "old", text = L.SORT_OLD },
+                    { value = "zone", text = L.SORT_ZONE },
                 }, function() return state.filter.order end,
-                    function(value) state.filter.order = value; refresh() end, 170)
+                    function(value) state.filter.order = value; refresh() end, INNER < 440 and 100 or 170)
                 row.order:SetPoint("BOTTOMRIGHT", 0, 4)
                 return row
             end,
@@ -467,10 +542,10 @@ local function buildShots(parent)
             zoneOptions[i] = nil
         end
         for _, zone in ipairs(ns.History.ShotZones()) do
-            zoneOptions[#zoneOptions + 1] = { value = zone, text = zone }
+            zoneOptions[#zoneOptions + 1] = { value = zone, text = ns.ZoneText(zone) }
         end
         local f = state.filter
-        local items = { { kind = "shotSearch" } }
+        local items = { { kind = "shotSearch" }, { kind = "shotShow" } }
         if state.open then
             items[#items + 1] = { kind = "shotFilters" }
         end
@@ -481,12 +556,24 @@ local function buildShots(parent)
         local header
         for _, record in ipairs(results) do
             local d = ns.Util.DayKey(record.t)
-            if not header or header.day ~= d then
-                header = { kind = "day", day = d, n = 0, anchor = d }
-                items[#items + 1] = header
+            if f.order == "zone" then
+                -- Grouped by location (v0.16.0); each row shows its date.
+                local z = type(record.zone) == "string" and record.zone ~= "" and record.zone or L.UNKNOWN_LOCATION
+                if not header or header.zone ~= z then
+                    header = { kind = "heading", zone = z, text = ns.ZoneText(z), n = 0 }
+                    items[#items + 1] = header
+                end
+                header.n = header.n + 1
+                header.right = ns.Count(header.n, "SHOTS")
+                items[#items + 1] = { kind = "shot", record = record, withDate = true }
+            else
+                if not header or header.day ~= d then
+                    header = { kind = "day", day = d, n = 0, anchor = d }
+                    items[#items + 1] = header
+                end
+                header.n = header.n + 1
+                items[#items + 1] = { kind = "shot", record = record }
             end
-            header.n = header.n + 1
-            items[#items + 1] = { kind = "shot", record = record }
         end
         for _, item in ipairs(items) do
             if item.kind == "day" then
@@ -579,7 +666,7 @@ local function buildPlaytime(parent)
               onSelect = function(value) self.days = value; self:Refresh() end },
             { kind = "chart", bars = chartBars(self.days, ns.Activity.OnDay, clock, UI.FormatDuration) },
             { kind = "tiles", days = days, average = average, sessions = sessions, longest = longest },
-            { kind = "note", text = L.PLAYTIME_NOTE, height = 30 },
+            { kind = "note", text = L.PLAYTIME_NOTE },
             { kind = "heading", text = L.DAILY_HISTORY },
         }
         for _, entry in ipairs(ns.Adventure.DailyList(first, ns.Activity.OnDay)) do
@@ -664,7 +751,7 @@ local function buildLocations(parent)
                 local row = CreateFrame("Frame", nil, p)
                 row.switch = W.Segmented(row, {
                     { "all", L.FILTER_ALL }, { "visited", L.FILTER_VISITED }, { "unvisited", L.FILTER_UNVISITED },
-                }, 390, function(value)
+                }, math.min(390, INNER), function(value)
                     state.filter = value
                     view:Refresh(nil, true)
                 end)
@@ -757,7 +844,7 @@ local function buildLocations(parent)
                 local z = item.zone
                 row.area = z.area
                 row.icon:SetTexture(z.visited and CHECK_ICON or DOT_ICON)
-                row.name:SetText(z.name)
+                row.name:SetText(ns.ZoneText(z.name))
                 setColor(row.name, z.visited and W.COLORS.text or W.COLORS.muted)
                 row.name:ClearAllPoints()
                 row.name:SetPoint("LEFT", 40, z.firstAt and 7 or 0)
@@ -806,7 +893,7 @@ local function buildLocations(parent)
                 local entry = item.entry
                 local sub = entry.first and L.FIRST_VISIT
                     or (entry.instance and L["INSTANCE_" .. entry.instance]) or nil
-                row.name:SetText(entry.name)
+                row.name:SetText(ns.Locations.DisplayName(entry))
                 row.name:ClearAllPoints()
                 row.name:SetPoint("LEFT", row.icon, "RIGHT", 10, sub and 7 or 0)
                 row.name:SetPoint("RIGHT", row, "RIGHT", -80, sub and 7 or 0)
@@ -855,6 +942,35 @@ local function buildLocations(parent)
             box.icon:SetIcon(c.visited and ICON.zones or ICON.newZones)
         end,
     }
+    -- v0.18.0: the zone's illustration (optional ArtPack) and its story.
+    kinds.zoneArt = {
+        height = 176,
+        make = function(p)
+            local box = W.Panel(p, W.COLORS.background, W.COLORS.divider)
+            box.art = box:CreateTexture(nil, "ARTWORK")
+            box.art:SetPoint("TOPLEFT", 2, -2)
+            box.art:SetPoint("BOTTOMRIGHT", -2, 6)
+            return box
+        end,
+        fill = function(box, item)
+            box.art:SetTexture(item.path)
+            box.art:SetTexCoord(item.l, item.r, item.t, item.b)
+        end,
+    }
+    kinds.story = {
+        height = 70,
+        make = function(p)
+            local row = CreateFrame("Frame", nil, p)
+            row.text = W.Text(row, "", "GameFontHighlight", W.COLORS.text)
+            row.text:SetPoint("TOPLEFT", 4, -8)
+            row.text:SetPoint("RIGHT", -12, 0)
+            if row.text.SetWordWrap then row.text:SetWordWrap(true) end
+            return row
+        end,
+        fill = function(row, item)
+            row.text:SetText(item.text)
+        end,
+    }
     kinds.cardShot = {
         height = 40,
         make = function(p)
@@ -885,6 +1001,16 @@ local function buildLocations(parent)
         local items = {
             { kind = "back" },
             { kind = "zoneCard", card = c },
+        }
+        local path, l, r, t, b = ns.ArtPack.Zone(area, (INNER - 4) / 168)
+        if path then
+            items[#items + 1] = { kind = "zoneArt", path = path, l = l, r = r, t = t, b = b }
+        end
+        local story = ns.Stories.Get(area)
+        if story then
+            items[#items + 1] = { kind = "story", text = story }
+        end
+        for _, row in ipairs({
             { kind = "value", icon = ICON.playtime, label = L.ZONE_TIME,
               value = tracked and UI.FormatDuration(c.time) or L.NO_DATA },
             { kind = "value", icon = ICON.calendar, label = L.ZONE_DAYS, value = ns.Num(c.days) },
@@ -895,7 +1021,9 @@ local function buildLocations(parent)
             { kind = "value", icon = ICON.shots, label = L.ZONE_SHOTS, value = ns.Num(c.shots) },
             { kind = "value", icon = ICON.newZones, label = L.ZONE_FIRST_VISIT, value = when(c.firstAt) },
             { kind = "value", icon = ICON.sessions, label = L.ZONE_LAST_VISIT, value = when(c.lastAt) },
-        }
+        }) do
+            items[#items + 1] = row
+        end
         if tracked then
             items[#items + 1] = { kind = "note", height = 30,
                 text = string.format(L.ZONE_TRACKED_SINCE, date("%d.%m.%Y", c.since)) }
@@ -913,7 +1041,9 @@ local function buildLocations(parent)
     local function matches(zone, query)
         if state.filter == "visited" and not zone.visited then return false end
         if state.filter == "unvisited" and zone.visited then return false end
+        -- v1.0.0-beta.7: the shown (Russian) name and the client's name both match.
         return query == "" or string.find(ns.Util.Lower(zone.name), query, 1, true) ~= nil
+            or string.find(ns.Util.Lower(ns.ZoneText(zone.name)), query, 1, true) ~= nil
     end
 
     function view:Refresh(day, keep)
@@ -992,9 +1122,28 @@ end
 -- Journey
 ---------------------------------------------------------------------------
 local function buildJourney(parent)
-    local view = newView(parent, {
+    local view
+    view = newView(parent, {
+        -- v0.18.0: all moments or only the important ones (no levels).
+        journeyFilter = {
+            height = 34,
+            make = function(p)
+                local row = CreateFrame("Frame", nil, p)
+                row.switch = W.Segmented(row, { { false, L.SHOW_ALL }, { true, L.SHOW_IMPORTANT } }, 220,
+                    function(value)
+                        view.important = value
+                        view:Refresh()
+                    end)
+                row.switch:SetPoint("LEFT", 0, 0)
+                W.Tooltip(row.switch, L.TIP_JOURNEY_IMPORTANT, L.SHOW_IMPORTANT)
+                return row
+            end,
+            fill = function(row)
+                row.switch:SetValue(view.important and true or false)
+            end,
+        },
         moment = {
-            height = 92,
+            height = 58, -- v1.0.0-beta.8: two lines (was 92 with an empty third)
             make = function(p)
                 local row = CreateFrame("Frame", nil, p)
                 row.line = row:CreateTexture(nil, "BACKGROUND")
@@ -1004,28 +1153,38 @@ local function buildJourney(parent)
                 row.line:SetPoint("TOPLEFT", 11, 0)
                 row.line:SetPoint("BOTTOMLEFT", 11, 0)
                 row.icon = W.IconBox(row, ICON.shots, 24)
-                row.icon:SetPoint("TOPLEFT", 0, -6)
+                row.icon:SetPoint("TOPLEFT", 0, -12)
                 row.card = W.Panel(row, W.COLORS.panel, W.COLORS.divider)
                 row.card:SetPoint("TOPLEFT", 34, -2)
-                row.card:SetPoint("BOTTOMRIGHT", 0, 8)
-                row.title = W.Text(row.card, "", "GameFontNormal", W.COLORS.heading)
-                row.title:SetPoint("TOPLEFT", 12, -12)
-                row.title:SetPoint("RIGHT", row.card, "RIGHT", -12, 0)
-                row.zone = W.Text(row.card, "", "GameFontHighlightSmall", W.COLORS.text)
-                row.zone:SetPoint("TOPLEFT", row.title, "BOTTOMLEFT", 0, -6)
-                row.zone:SetPoint("RIGHT", row.card, "RIGHT", -12, 0)
+                row.card:SetPoint("BOTTOMRIGHT", 0, 6)
+                -- Title and time on the first line, details on the second.
                 row.when = W.Text(row.card, "", "GameFontHighlightSmall", W.COLORS.muted)
-                row.when:SetPoint("TOPLEFT", row.zone, "BOTTOMLEFT", 0, -6)
+                row.when:SetPoint("TOPRIGHT", -12, -9)
+                row.when:SetJustifyH("RIGHT")
+                row.title = W.Text(row.card, "", "GameFontNormal", W.COLORS.heading)
+                row.title:SetPoint("TOPLEFT", 12, -8)
+                row.title:SetPoint("RIGHT", row.when, "LEFT", -10, 0)
+                row.zone = W.Text(row.card, "", "GameFontHighlightSmall", W.COLORS.text)
+                row.zone:SetPoint("TOPLEFT", row.title, "BOTTOMLEFT", 0, -5)
+                row.zone:SetPoint("RIGHT", row.card, "RIGHT", -12, 0)
                 return row
             end,
             fill = function(row, item)
                 local e = item.entry
                 row.icon:SetIcon(ns.Journey.Icon(e.kind))
                 row.title:SetText(ns.Journey.Title(e))
+                -- Three levels (v0.18.0): legendary gold, gold, plain.
+                local tier = e.kind == "START" and 2 or ns.Journey.Tier(e)
+                local c = W.COLORS
+                local border = tier == 3 and ns.Achievements.RARITY_COLORS.legendary or (tier == 2 and c.gold or c.divider)
+                row.card:SetBackdropBorderColor(border[1], border[2], border[3], 1)
+                setColor(row.title, tier == 3 and ns.Achievements.RARITY_COLORS.legendary
+                    or (tier == 2 and c.heading or c.text))
                 local parts = {}
-                if type(e.zone) == "string" and e.zone ~= "" then parts[#parts + 1] = e.zone end
+                if type(e.zone) == "string" and e.zone ~= "" then parts[#parts + 1] = ns.ZoneText(e.zone) end
                 if e.kind == "START" then parts[#parts + 1] = L.JOURNEY_START_DETAIL end
-                if type(e.info) == "string" and e.info ~= "" then parts[#parts + 1] = e.info end
+                local detail = e.kind ~= "START" and ns.Journey.Detail(e)
+                if detail then parts[#parts + 1] = detail end
                 row.zone:SetText(table.concat(parts, "  ·  "))
                 row.when:SetText(ns.History.DateText(ns.Util.DayKey(e.t)) .. "  ·  " .. date("%H:%M", e.t))
             end,
@@ -1033,12 +1192,15 @@ local function buildJourney(parent)
     })
     function view:Refresh(_, keep)
         local name = ns.character and ns.character.name or "?"
-        local items = { { kind = "note", text = string.format(L.JOURNEY_SUBTITLE, name), color = W.COLORS.text } }
+        local items = { { kind = "note", text = string.format(L.JOURNEY_SUBTITLE, name), color = W.COLORS.text },
+                        { kind = "journeyFilter" } }
         for _, entry in ipairs(ns.Journey.Rows()) do
-            items[#items + 1] = { kind = "moment", entry = entry }
+            if not view.important or entry.kind == "START" or ns.Journey.Tier(entry) >= 2 then
+                items[#items + 1] = { kind = "moment", entry = entry }
+            end
         end
-        if #items == 1 then
-            items[2] = { kind = "note", text = L.NO_DATA }
+        if #items == 2 then
+            items[3] = { kind = "note", text = L.NO_DATA }
         end
         show(self, items, keep)
     end
@@ -1160,9 +1322,9 @@ end
 -- One figure of the selected day; a click opens its history at that day.
 local function makeDayStat(parent, icon, label)
     local stat = CreateFrame("Button", nil, parent)
-    stat.icon = W.Icon(stat, icon, 18)
+    stat.icon = W.Icon(stat, icon, 22)
     stat.icon:SetPoint("LEFT", 10, 0)
-    stat.value = W.Text(stat, "", "GameFontNormalLarge", W.COLORS.heading)
+    stat.value = W.Text(stat, "", "GameFontHighlightLarge", W.COLORS.heading) -- beta.8: Inter digits
     stat.value:SetPoint("TOPLEFT", 40, -6)
     stat.label = W.Text(stat, label, "GameFontHighlightSmall", W.COLORS.text)
     stat.label:SetPoint("BOTTOMLEFT", 40, 6)
@@ -1258,7 +1420,7 @@ local function fillMemoryRow(row, item)
     row.icon:SetIcon(m.icon)
     row.title:SetText(m.title)
     local parts = {}
-    for _, part in ipairs({ m.zone, m.detail }) do
+    for _, part in ipairs({ ns.ZoneText(m.zone), m.detail }) do
         if type(part) == "string" and part ~= "" then
             parts[#parts + 1] = part
         end
@@ -1320,7 +1482,7 @@ local function buildOverview(parent)
                 row.range:SetText(item.range)
             end,
         },
-    })
+    }, DASH_TOP)
     function view:Refresh(_, keep)
         local today = ns.Util.DayKey(ns.API.Time())
         state.selected = state.selected and state.selected <= today and state.selected or today
@@ -1388,7 +1550,7 @@ local function buildRecords(parent)
                 row.title:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 12, 0)
                 row.when = W.Text(row, "", "GameFontHighlightSmall", W.COLORS.muted)
                 row.when:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 12, 0)
-                row.value = W.Text(row, "", "GameFontNormalLarge", W.COLORS.heading)
+                row.value = W.Text(row, "", "GameFontHighlightLarge", W.COLORS.heading) -- beta.8: Inter digits
                 row.value:SetPoint("RIGHT", -8, 0)
                 row.value:SetJustifyH("RIGHT")
                 row.line = W.Divider(row)
@@ -1397,7 +1559,7 @@ local function buildRecords(parent)
                 return row
             end,
             fill = function(row, item)
-                row.icon:SetTexture(item.icon)
+                row.icon:SetIcon(item.icon)
                 row.title:SetText(item.title)
                 row.when:SetText(item.when)
                 row.value:SetText(item.value)
@@ -1410,36 +1572,75 @@ local function buildRecords(parent)
         local items = { { kind = "heading", text = L.RECORDS_TITLE } }
         for _, id in ipairs(ns.Records.ORDER) do
             local record, spec = records[id] or {}, RECORDS[id]
+            local when = recordWhen(id, record)
+            local prev = ns.Records.Previous(id)
+            if prev and record.value then
+                when = when .. "  ·  " .. string.format(L.RECORD_WAS, spec[3](prev))
+            end
             items[#items + 1] = {
-                kind = "record", icon = spec[1], title = L[spec[2]], when = recordWhen(id, record),
+                kind = "record", icon = spec[1], title = L[spec[2]], when = when,
                 value = record.value and spec[3](record.value) or L.NO_DATA, has = record.value ~= nil,
             }
         end
-        items[#items + 1] = { kind = "note", text = L.RECORDS_NOTE, height = 40 }
+        -- v0.18.0: improvements, once their day is over.
+        local improvements = ns.Records.Improvements()
+        if #improvements > 0 then
+            items[#items + 1] = { kind = "heading", text = L.RECORDS_HISTORY }
+            for _, e in ipairs(improvements) do
+                local spec = RECORDS[e.id]
+                local diff = e.prev and (e.value - e.prev) or nil
+                items[#items + 1] = { kind = "value", icon = spec[1], label = L[spec[2]] .. "  ·  "
+                    .. (e.day and fullDate(e.day) or L.DATE_UNKNOWN),
+                    value = spec[3](e.value) .. (diff and diff > 0 and ("  (+" .. (e.id == "playtime" or e.id == "session"
+                        and UI.FormatDuration(diff) or ns.Num(diff)) .. ")") or "") }
+            end
+        end
+        items[#items + 1] = { kind = "note", text = L.RECORDS_NOTE }
         show(self, items, keep)
     end
     return view
 end
 
 ---------------------------------------------------------------------------
--- Achievements (v0.13.0): ForeverMemories' own achievements with a filter
--- All / Completed / In progress, grouped like the catalog.
+-- Hall of Memories (v0.14.0): catalog 1.0, 100 character achievements in
+-- 10 categories plus 6 account "Legacy" ones. Filters: status and scope.
+-- Rarity is shown by color; secret achievements show only their hint until
+-- earned; an achievement Forever cannot track says why.
 ---------------------------------------------------------------------------
 local ACH_FILTERS = { { "all", "ACH_ALL" }, { "done", "ACH_DONE" }, { "progress", "ACH_IN_PROGRESS" } }
+local ACH_SCOPES = { { "character", "ACH_SCOPE_CHARACTER" }, { "account", "ACH_SCOPE_ACCOUNT" } }
+
+local function rarityColor(rarity)
+    local c = ns.Achievements.RARITY_COLORS[rarity] or ns.Achievements.RARITY_COLORS.common
+    return { c[1], c[2], c[3] }
+end
 
 local function achievementStatus(a)
     if a.done then
         return a.at and string.format(L.ACH_EARNED_ON, fullDate(ns.Util.DayKey(a.at))) or L.ACH_EARNED_UNKNOWN,
             W.COLORS.active
-    elseif not a.available then
-        return L.ACH_CATALOG_UNCONFIRMED, W.COLORS.muted
+    elseif a.state == "unavailable" then
+        return L.ACH_STATE_UNAVAILABLE, W.COLORS.muted
+    elseif a.state == "pending" then
+        return L.ACH_STATE_PENDING, W.COLORS.muted
+    elseif a.state == "unknown" then
+        return L.ACH_STATE_UNKNOWN, W.COLORS.muted
     end
     return L.ACH_IN_PROGRESS, W.COLORS.muted
 end
 
+local function wantedBy(filter, a)
+    if filter == "done" then
+        return a.done
+    elseif filter == "progress" then
+        return not a.done and a.state ~= "unavailable"
+    end
+    return true
+end
+
 local function buildAchievements(parent)
     local view
-    local state = { filter = "all" }
+    local state = { filter = "all", scope = "character" }
     local BAR = INNER - 190
     view = newView(parent, {
         achFilter = {
@@ -1450,7 +1651,7 @@ local function buildAchievements(parent)
                 for i, f in ipairs(ACH_FILTERS) do
                     options[i] = { f[1], L[f[2]] }
                 end
-                row.switch = W.Segmented(row, options, 330, function(value)
+                row.switch = W.Segmented(row, options, math.min(330, INNER - 90), function(value)
                     state.filter = value
                     view:Refresh()
                 end)
@@ -1465,16 +1666,53 @@ local function buildAchievements(parent)
                 row.summary:SetText(item.summary)
             end,
         },
+        achScope = {
+            height = 36,
+            make = function(p)
+                local row = CreateFrame("Frame", nil, p)
+                local options = {}
+                for i, f in ipairs(ACH_SCOPES) do
+                    options[i] = { f[1], L[f[2]] }
+                end
+                row.switch = W.Segmented(row, options, math.min(330, INNER - 90), function(value)
+                    state.scope = value
+                    view:Refresh()
+                end)
+                row.switch:SetPoint("LEFT", 0, 0)
+                return row
+            end,
+            fill = function(row)
+                row.switch:SetValue(state.scope)
+            end,
+        },
         achievement = {
             height = 66,
             make = function(p)
                 local row = CreateFrame("Frame", nil, p)
-                row.icon = W.IconBox(row, ICON.shots, 38)
-                row.icon:SetPoint("LEFT", 0, 0)
+                row.icon = W.Medallion(row, 56) -- v1.0.0-beta.8: 56 px (was 46)
+                row.icon:SetPoint("LEFT", -6, 0)
                 row.title = W.Text(row, "", "GameFontHighlight", W.COLORS.text)
                 row.title:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 12, 2)
+                -- Pin to Home (v0.16.0): up to three achievements.
+                row.pin = W.Button(row, "", 22, 20, function(self)
+                    if self.id and not viewedCharacter() then
+                        if ns.Achievements.TogglePin(self.id) == nil then
+                            ns.API.Print(L.PIN_LIMIT)
+                        end
+                        view:Refresh(nil, true)
+                    end
+                end)
+                row.pin:SetPoint("TOPRIGHT", -8, -6)
+                row.pin.icon = row.pin:CreateTexture(nil, "ARTWORK")
+                row.pin.icon:SetSize(16, 16)
+                row.pin.icon:SetPoint("CENTER")
+                row.pin.icon:SetTexture(ns.Media.DECOR.accent_diamond)
+                row.pin.icon:SetTexCoord(unpack(ns.Media.CROP.diamond)) -- v1.0.1: the diamond only
+                W.Tooltip(row.pin, function()
+                    return row.pin.selected and L.TIP_UNPIN or L.TIP_PIN
+                end, function() return row.pin.selected and L.UNPIN or L.PIN end)
                 row.status = W.Text(row, "", "GameFontHighlightSmall", W.COLORS.muted)
-                row.status:SetPoint("TOPRIGHT", -8, -10)
+                row.status:SetPoint("TOPRIGHT", -36, -10)
                 row.status:SetJustifyH("RIGHT")
                 row.desc = W.Text(row, "", "GameFontHighlightSmall", W.COLORS.muted)
                 row.desc:SetPoint("TOPLEFT", row.title, "BOTTOMLEFT", 0, -3)
@@ -1493,11 +1731,30 @@ local function buildAchievements(parent)
             end,
             fill = function(row, item)
                 local a = item.achievement
-                row.icon:SetIcon(a.def.icon)
-                row.icon:SetAlpha(a.done and 1 or 0.45)
-                row.title:SetText(L["ACH_" .. a.def.id])
-                setColor(row.title, a.done and W.COLORS.heading or W.COLORS.text)
-                row.desc:SetText(L["ACH_" .. a.def.id .. "_DESC"])
+                local def = a.def
+                local M = ns.Media
+                row.icon:Set(a.secret and "Interface\\Icons\\INV_Misc_QuestionMark"
+                    or M.MEDALLIONS[def.medallion] or M.MEDALLIONS.special,
+                    M.FRAMES[a.done and def.rarity or "common"], a.done and 1 or 0.55, not a.done)
+                local rarity = L["ACH_RARITY_" .. string.upper(def.rarity)]
+                if a.secret then
+                    row.title:SetText(L.ACH_SECRET .. "  |cff8c8c8c" .. rarity .. "|r")
+                    row.desc:SetText(ns.Achievements.Text(def, "hint") or "")
+                else
+                    row.title:SetText(ns.Achievements.Text(def, "title") .. "  |cff8c8c8c" .. rarity .. "|r")
+                    local desc = ns.Achievements.Text(def, "description")
+                    if a.reason then
+                        desc = desc .. " " .. L[a.reason]
+                    end
+                    row.desc:SetText(desc)
+                end
+                setColor(row.title, a.done and rarityColor(def.rarity) or W.COLORS.text)
+                local canPin = ns.Achievements.CanPin(a) and not viewedCharacter()
+                row.pin:SetShown(canPin)
+                row.pin.id = def.id
+                local pinned = canPin and ns.Achievements.IsPinned(def.id)
+                row.pin:SetSelected(pinned)
+                row.pin.icon:SetAlpha(pinned and 1 or 0.45)
                 local status, color = achievementStatus(a)
                 row.status:SetText(status)
                 setColor(row.status, color)
@@ -1505,9 +1762,13 @@ local function buildAchievements(parent)
                 if a.done and target and (not value or value > target) then
                     value = target -- never "less than done", never over 100 %
                 end
-                if value and target then
+                if a.secret and not a.done then
+                    row.count:SetText("?")
+                    row.bar:SetProgress(0, BAR)
+                elseif value and target then
+                    value = math.min(value, target)
                     row.count:SetText(ns.Num(value) .. " / " .. ns.Num(target))
-                    row.bar:SetProgress(math.min(1, value / target), BAR)
+                    row.bar:SetProgress(value / target, BAR)
                 else
                     row.count:SetText(a.done and L.ACH_COMPLETE or "-")
                     row.bar:SetProgress(a.done and 1 or 0, BAR)
@@ -1516,31 +1777,36 @@ local function buildAchievements(parent)
         },
     })
     function view:Refresh(_, keep)
-        local list = ns.Achievements.Get()
-        local done = 0
-        for _, a in ipairs(list) do
-            if a.done then
-                done = done + 1
-            end
-        end
-        local items = { { kind = "achFilter", summary = string.format(L.ACH_SUMMARY, done, #list) } }
-        for _, group in ipairs(ns.Achievements.GROUPS) do
-            local heading = false
+        local list = ns.Achievements.Get(state.scope)
+        local done, total, availableDone, available = ns.Achievements.Summary(state.scope, list)
+        local items = {
+            { kind = "achScope" },
+            { kind = "achFilter", summary = string.format(L.ACH_SUMMARY_FULL, done, total, availableDone, available) },
+        }
+        local categories = state.scope == "account" and { "account" } or ns.Achievements.CATEGORIES
+        for _, category in ipairs(categories) do
+            local rows, total, earned = {}, 0, 0
             for _, a in ipairs(list) do
-                local wanted = state.filter == "all" or (state.filter == "done") == a.done
-                if a.def.group == group and wanted then
-                    if not heading then
-                        items[#items + 1] = { kind = "heading", text = L["ACH_GROUP_" .. string.upper(group)] }
-                        heading = true
+                if a.def.category == category then
+                    total = total + 1
+                    if a.done then earned = earned + 1 end
+                    if wantedBy(state.filter, a) then
+                        rows[#rows + 1] = { kind = "achievement", achievement = a }
                     end
-                    items[#items + 1] = { kind = "achievement", achievement = a }
+                end
+            end
+            if #rows > 0 then
+                items[#items + 1] = { kind = "heading", text = L["ACH_CAT_" .. string.upper(category)],
+                    right = string.format("%d / %d", earned, total) }
+                for _, r in ipairs(rows) do
+                    items[#items + 1] = r
                 end
             end
         end
-        if #items == 1 then
+        if #items == 2 then
             items[#items + 1] = { kind = "note", text = state.filter == "done" and L.ACH_NONE_DONE or L.ACH_ALL_DONE }
         end
-        items[#items + 1] = { kind = "note", text = L.ACH_NOTE, height = 40 }
+        items[#items + 1] = { kind = "note", text = state.scope == "account" and L.ACH_NOTE_ACCOUNT or L.ACH_NOTE, height = 52 }
         show(self, items, keep)
     end
     return view
@@ -1593,7 +1859,9 @@ local function buildAccount(parent, onOpen)
                     row.portrait:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                 end
                 row.key = item.key
-                row.name:SetText(ns.DataTools.DisplayName(c, item.key) .. " - " .. (c.realm or "?"))
+                -- beta.10: no " - " when the realm is unknown or empty.
+                local realm = type(c.realm) == "string" and c.realm ~= "" and ("  ·  " .. c.realm) or ""
+                row.name:SetText(ns.DataTools.DisplayName(c, item.key) .. realm)
                 row.tag:SetShown(item.current)
                 row.detail:SetText(table.concat({
                     ns.Count(s.shots, "SHOTS"), ns.Count(s.steps, "STEPS"), ns.Count(s.zones, "ZONES"),
@@ -1601,7 +1869,7 @@ local function buildAccount(parent, onOpen)
                 }, "  ·  "))
             end,
         },
-    }, BUTTONS_TOP)
+    }, DASH_TOP)
     function view:Refresh(_, keep)
         local list = ns.DataTools.Characters()
         local items = { { kind = "heading", text = L.ACCOUNT_CHARACTERS, right = ns.Num(#list) } }
@@ -1622,16 +1890,26 @@ local ORDER = { "overview", "shots", "steps", "zones", "playtime", "journey", "r
 local LABELS = { overview = "SUB_OVERVIEW", shots = "SUB_SHOTS", steps = "SUB_STEPS",
                  zones = "SUB_ZONES", playtime = "SUB_PLAYTIME", journey = "SUB_JOURNEY",
                  records = "SUB_RECORDS", achievements = "SUB_ACHIEVEMENTS" }
-local BUTTONS_PER_ROW = 4
+local MENU_ICONS = { overview = "history", shots = "screenshots", steps = "steps", zones = "locations",
+                     playtime = "playtime", journey = "chronicle", records = "records",
+                     achievements = "achievements" }
+local MENU_TIPS = { overview = "TIP_SUB_OVERVIEW", shots = "TIP_SUB_SHOTS", steps = "TIP_SUB_STEPS",
+                    zones = "TIP_SUB_ZONES", playtime = "TIP_SUB_PLAYTIME", journey = "TIP_SUB_JOURNEY",
+                    records = "TIP_SUB_RECORDS", achievements = "TIP_SUB_ACHIEVEMENTS" }
 
 UI.builders.history = function(parent)
+    measure()
     local refreshHeader = UI.CharacterHeader(parent, L.LIFETIME_STATS)
-    local cards = UI.Dashboard(parent, 44, {
+    -- Lifetime dashboard: Overview and All characters only (v0.16.0).
+    local dash = CreateFrame("Frame", nil, parent)
+    dash:SetPoint("TOPLEFT", MENU_W, -HEAD_TOP)
+    dash:SetSize(WIDTH, 2 * 80 + 8)
+    local cards = UI.Dashboard(dash, 0, {
         { "shots", ICON.shots, L.STAT_TOTAL, L.TIP_STAT_TOTAL },
         { "steps", ICON.steps, L.TOTAL_STEPS, L.STEPS_NOTE },
         { "zones", ICON.zones, L.STAT_ZONES_TOTAL, L.TIP_STAT_ZONES_TOTAL },
         { "playtime", ICON.playtime, L.STAT_PLAYTIME_TOTAL, L.TIP_STAT_PLAYTIME_TOTAL },
-    })
+    }, WIDTH)
 
     local views = {
         overview = buildOverview(parent), shots = buildShots(parent), steps = buildSteps(parent),
@@ -1647,7 +1925,7 @@ UI.builders.history = function(parent)
     local current = "overview"
     local mode = "character" -- or "account"
     local pendingDay
-    local refresh, account, modeSwitch, back
+    local refresh, account, modeSwitch, accountIcon
 
     -- Shows a sub-view; `day` scrolls it to that date, `keep` keeps the
     -- scroll position (data refresh of the same sub-view).
@@ -1660,19 +1938,31 @@ UI.builders.history = function(parent)
             buttons[key]:SetSelected(key == current)
         end
         account:SetShown(not showViews)
+        accountIcon:SetShown(not showViews)
+        dash:SetShown(not showViews or current == "overview")
         if showViews then
             views[current]:Refresh(day, keep)
         else
             account:Refresh(nil, keep)
         end
     end
-    local gap = 6
-    local width = (WIDTH - gap * (BUTTONS_PER_ROW - 1)) / BUTTONS_PER_ROW
+    -- Vertical icon menu; the name of each sub-view is in its tooltip.
     for i, id in ipairs(ORDER) do
-        local column, line = (i - 1) % BUTTONS_PER_ROW, math.floor((i - 1) / BUTTONS_PER_ROW)
-        buttons[id] = W.Button(parent, L[LABELS[id]], width, 30, function() select(id) end)
-        buttons[id]:SetPoint("TOPLEFT", column * (width + gap), -BUTTONS_TOP - line * 34)
+        if named then
+            buttons[id] = W.MenuButton(parent, ns.Media.NAV[MENU_ICONS[id]], L[LABELS[id]], MENU_W - 14, 32,
+                function() select(id) end)
+            W.Tooltip(buttons[id], L[MENU_TIPS[id]], L[LABELS[id]])
+            buttons[id]:SetPoint("TOPLEFT", 0, -HEAD_TOP - (i - 1) * 36)
+        else
+            buttons[id] = W.IconButton(parent, ns.Media.NAV[MENU_ICONS[id]], MENU_ICON, L[LABELS[id]],
+                L[MENU_TIPS[id]], function() select(id) end)
+            buttons[id]:SetPoint("TOPLEFT", 0, -HEAD_TOP - (i - 1) * (MENU_ICON + 4))
+        end
     end
+    accountIcon = W.IconButton(parent, ns.Media.NAV.account, MENU_ICON, L.MODE_ACCOUNT .. " ", L.TIP_MODE_ACCOUNT)
+    accountIcon:SetPoint("TOPLEFT", 0, -HEAD_TOP)
+    accountIcon:SetSelected(true)
+    accountIcon:Hide()
 
     -- Character / All characters, and the way back from a viewed character.
     local function setMode(value, key)
@@ -1683,12 +1973,31 @@ UI.builders.history = function(parent)
         setMode("character", key ~= ns.characterKey and key or nil)
     end)
     account:Hide()
-    modeSwitch = W.Segmented(parent, { { "character", L.MODE_CHARACTER }, { "account", L.MODE_ACCOUNT } }, 250,
-        function(value) setMode(value, nil) end)
+    -- v1.0.0-beta.10: one list instead of "Character / All characters" and
+    -- "Back to my character": the current character first, the others,
+    -- then All characters. Choosing yourself goes back.
+    local pickOptions = {}
+    local function fillPick()
+        for i = #pickOptions, 1, -1 do pickOptions[i] = nil end
+        for _, entry in ipairs(ns.DataTools.Characters()) do
+            local name = ns.DataTools.DisplayName(entry.character, entry.key)
+            pickOptions[#pickOptions + 1] = { value = entry.key,
+                text = entry.current and (name .. "  ·  " .. L.CURRENT_CHARACTER) or name }
+        end
+        pickOptions[#pickOptions + 1] = { value = "account", text = L.MODE_ACCOUNT }
+    end
+    fillPick()
+    modeSwitch = W.Dropdown(parent, pickOptions,
+        function() return mode == "account" and "account" or (viewed or ns.characterKey) end,
+        function(value)
+            if value == "account" then
+                setMode("account", nil)
+            else
+                setMode("character", value ~= ns.characterKey and value or nil)
+            end
+        end, 250)
     modeSwitch:SetPoint("TOPRIGHT", 0, -2)
-    W.Tooltip(modeSwitch, L.TIP_MODE_ACCOUNT, L.MODE_ACCOUNT)
-    back = W.Link(parent, L.BACK_TO_CURRENT, function() setMode("character", nil) end)
-    back:SetPoint("TOPRIGHT", 0, -28)
+    W.Tooltip(modeSwitch, L.TIP_HISTORY_PICK, L.HISTORY_PICK)
 
     local function refreshPlaytime()
         if mode == "character" and not viewedCharacter() then
@@ -1709,11 +2018,11 @@ UI.builders.history = function(parent)
         if viewed and not viewedCharacter() then
             viewed = nil -- deleted, or it is the current character now
         end
-        modeSwitch:SetValue(mode)
-        back:SetShown(viewed ~= nil)
+        fillPick()
+        modeSwitch:Refresh()
         if mode == "account" then
             local t = ns.DataTools.AccountTotals()
-            refreshHeader(L.ACCOUNT_CAPTION, L.ACCOUNT_TITLE, "Interface\\Icons\\INV_Misc_GroupNeedMore")
+            refreshHeader(L.ACCOUNT_CAPTION, L.ACCOUNT_TITLE, ICON.account)
             cards.shots.value:SetText(ns.Num(t.shots))
             cards.steps.value:SetText(ns.Num(t.steps))
             cards.zones.value:SetText(ns.Num(t.zones))
@@ -1744,10 +2053,13 @@ UI.builders.history = function(parent)
             mode, viewed, switched = "character", nil, true
         end,
         Refresh = refresh,
+        Current = function() return current end,
         RefreshSteps = refreshSteps,
         RefreshClock = refreshPlaytime,
         Current = function() return current end,
         Mode = function() return mode, viewed end,
+        -- The same as choosing in the character list (tests, other tabs).
+        Pick = function(value) modeSwitch:Choose(value) end,
     }
 end
 

@@ -3,7 +3,7 @@
 local addonName, ns = ...
 
 ns.name = addonName
-ns.version = "0.13.0"
+ns.version = "1.0.0-beta.14"
 
 -- Our own frames (the window). They are hidden while a screenshot is
 -- taken so they never appear in a memory.
@@ -112,12 +112,26 @@ ns.On("ADDON_LOADED", function(_, loadedName)
     if loadedName ~= addonName or ns.db then
         return
     end
-    local db, repaired = ns.Database.Load(ForeverMemoriesDB)
-    ForeverMemoriesDB = db
+    local db, repaired, status = ns.Database.Load(ForeverMemoriesDB)
+    ns.loadStatus = status
+    if status.incompatible or status.unsafe then
+        -- Saved data is left exactly as it is (it is still what the game
+        -- writes back); this session works on a scratch table.
+        ns.readOnly = true
+    else
+        ForeverMemoriesDB = db
+    end
     ns.db = db
     ns.SetLocale(db.settings.locale)
     if #repaired > 0 then
         ns.Logger.Warn("Reset damaged saved data: " .. table.concat(repaired, ", "))
+    end
+    if status.incompatible then
+        ns.API.Print(string.format(ns.L.DB_INCOMPATIBLE, status.incompatible, ns.Database.SCHEMA_VERSION))
+    elseif status.unsafe then
+        ns.API.Print(string.format(ns.L.DB_UNSAFE, table.concat(status.unsafe, ", ")))
+    elseif status.migrated then
+        ns.Logger.Info(string.format("Migrated saved data: schema %d -> %d", status.migrated.from, status.migrated.to))
     end
     ns.Logger.Info("Loaded v" .. ns.version)
     for i = 1, #ns.onReady do

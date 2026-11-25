@@ -1,8 +1,298 @@
 -- Modules/ChangelogData.lua
--- GENERATED from CHANGELOG.md by tools/changelog.lua. Do not edit by hand.
+-- GENERATED from CHANGELOG.md and CHANGELOG.en.md by tools/changelog.lua. Do not edit by hand.
 local _, ns = ...
 
 ns.CHANGELOG = {
+    {
+        version = "1.0.0-beta.14",
+        date = "2026-11-25",
+        title = "Все тесты под актуальную версию",
+        sections = {
+            { kind = "improved", items = {
+                "Полный набор офлайн-тестов (110) обновлён под текущую версию и проходит целиком: схема данных 6, новые страницы настроек, каталог достижений 1.0, уведомления по видам.",
+                "Сборка релиза (tools/release.sh) запускает оба набора тестов.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.13",
+        date = "2026-11-25",
+        title = "Порядок в документации",
+        sections = {
+            { kind = "improved", items = {
+                "Документация на двух языках: README, журнал изменений, ход работ, архитектура и тестирование — на русском и английском.",
+                "Английский журнал изменений теперь отдельный файл и попадает на страницу «Обновления» так же, как русский.",
+            } },
+            { kind = "removed", items = {
+                "Устаревшие ТЗ, план работ и описание дизайна версии 0.5 — актуальное собрано в docs/ARCHITECTURE.md и docs/TESTING.md.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.12",
+        date = "2026-11-25",
+        title = "Фон мини-уведомления точно по рамке",
+        sections = {
+            { kind = "fixed", items = {
+                "Мини-уведомление: тёмный фон повторяет форму рамки — доходит до золотых линий и не выступает за закруглённые края слева и справа.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.11",
+        date = "2026-11-25",
+        title = "Аккуратное мини-уведомление",
+        sections = {
+            { kind = "fixed", items = {
+                "Мини-уведомление: заголовок и текст стоят ровно посередине между золотыми линиями и не заходят под «x».",
+                "Кнопка «x» на всех уведомлениях — просто знак внутри рамки, без квадрата поверх золотой линии; под мышкой становится золотой.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.10",
+        date = "2026-11-25",
+        title = "Свои настройки у каждого уведомления, выбор персонажа",
+        sections = {
+            { kind = "improved", items = {
+                "Уведомления: место на экране (сверху / посередине / снизу) и размер (мелкий / обычный / крупный) теперь в панели «Изменить» каждого вида. Образец сразу передвигается и меняет размер; «Готово» сохраняет.",
+                "«Показать» работает как переключатель: второе нажатие скрывает пример, а на кнопке в это время написано «Скрыть».",
+                "Виды уведомлений — аккуратные карточки: включение и название, «Показать» и «Изменить» в первой строке, время на экране во второй.",
+                "История: вместо кнопок «Персонаж / Все персонажи» и ссылки «К своему персонажу» — один список: ваш персонаж (первый, с пометкой «Текущий»), остальные, «Все персонажи». Чтобы вернуться, выберите себя.",
+            } },
+            { kind = "fixed", items = {
+                "Список персонажей: после имени больше нет лишнего « -», когда игровой мир неизвестен.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.9",
+        date = "2026-11-25",
+        title = "Уведомления: всё в одном месте",
+        sections = {
+            { kind = "improved", items = {
+                "Настройки / Уведомления: наверху блок «Все уведомления» — показывать, звук, ждать конца боя, объединять повторы, место и размер. Выбор места или размера действует сразу на все виды и сбрасывает их «своё место».",
+                "Кнопка «Изменить» у каждого вида: панель с масштабом и «Закрепить» открывается прямо под образцом уведомления и едет за ним, когда его перетаскиваешь (у нижнего края экрана — над ним). Панель непрозрачная.",
+                "Уведомления «Открытие» и «Легендарное» — со срезанными углами.",
+            } },
+            { kind = "fixed", items = {
+                "Мини-уведомление: иконка без второй рамки, ровно в своём гнезде; тёмный фон не выходит за золотую линию.",
+                "Главная в узком окне: у целей вместо «19 850 / 36 000» — проценты, надпись «Ближайшее» не наезжает на число.",
+                "Настройки в узком окне: ряд иконок меню не касается подписи страницы; список языка не закрывает пояснение.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.8",
+        date = "2026-11-25",
+        title = "Своя графика по всему окну",
+        sections = {
+            { kind = "improved", items = {
+                "Иконки на главных вкладках (Главная, Автосъёмка, История, Настройки); в узком окне — только названия.",
+                "Свои иконки вместо стандартных иконок игры: карточки Главной и Обзора, Рекорды, меню Настроек, группы и режимы Автосъёмки, пассивные снимки и новые зоны в списке снимков, Хроника.",
+                "Золотые уголки окна и компас на нижней линии.",
+                "Достижения: медальоны крупнее; полученные — в цвете и в рамке своей редкости, остальные — серые.",
+                "Хроника: запись в две строки (название и время, затем подробности) — в окно помещается почти вдвое больше.",
+                "Автосъёмка: у группы кнопки «Включить все» / «Выключить все» вместо «Все / Ни одного».",
+                "Графики шагов и времени: день без активности подписан «—», а не «0».",
+            } },
+            { kind = "fixed", items = {
+                "Числа в Рекордах, в карточках «Данные» и в итогах дня набраны шрифтом Inter: «10» больше не похоже на «ıo».",
+                "Оформление: надпись «С иллюстрациями» помещается в кнопку.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.7",
+        date = "2026-11-25",
+        title = "Неделя на Главной, счётчики достижений, русские зоны",
+        sections = {
+            { kind = "added", items = {
+                "Главная: «Эта неделя» — снимки, шаги, локации, активная игра и новые локации с понедельника; нажатие открывает Историю / Обзор. Стоит рядом с «Последним приключением».",
+                "Достижения: «Получено X / Y · доступных X / Y» — всего и среди тех, что можно получить в Forever.",
+                "Русские названия зон (48 из каталога зон), когда аддон на русском, а игра на английском. Поиск локаций находит и по-русски, и по-английски. Сохранённые данные не меняются.",
+            } },
+            { kind = "improved", items = {
+                "Ссылка «Вся история снимков» теперь справа от заголовка «Последние снимки».",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.6",
+        date = "2026-11-25",
+        title = "Уведомления: время, пауза, своё место",
+        sections = {
+            { kind = "added", items = {
+                "Своё время на экране для каждого вида: мини — 3, 5 или 10 с (прежний выбор сохранён), открытие — 10, 15 или 20 с (обычно 15), легендарное — 7, 10 или 15 с (обычно 10).",
+                "Если навести мышку на уведомление, оно останавливается; кнопка «x» закрывает его сразу.",
+                "«Положение…» у каждого вида: образец остаётся на экране, его можно перетащить мышкой, изменить масштаб, закрепить, сбросить к общему месту; «Готово» сохраняет, «Отмена» и уход со страницы — нет. Пока открыт редактор, настоящие уведомления ждут.",
+                "«Ждать конца боя»: легендарная карточка ждёт конца боя (можно выключить); карточка открытия ждёт всегда.",
+            } },
+            { kind = "improved", items = {
+                "Названия видов короче: Мини, Открытие, Легендарное (подробности — во всплывающей подсказке).",
+                "«Восстановить настройки» на странице Уведомлений сбрасывает и свои места видов.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.5",
+        date = "2026-11-25",
+        title = "Окно под любой размер",
+        sections = {
+            { kind = "added", items = {
+                "Окно можно уменьшить до 440×600. Раскладка выбирается сама по ширине: компактная (меньше 520), стандартная, широкая (от 780).",
+                "Если страница не помещается по высоте, она прокручивается колёсиком мыши и полосой справа (Главная и страницы Настроек).",
+                "В широком окне в меню Истории рядом со значками видны названия разделов.",
+            } },
+            { kind = "improved", items = {
+                "Компактное окно: меню Настроек — ряд значков над страницей; карточки Данных в две колонки; поля дат и переключатели в Истории уже; в шапке остаётся только цветная точка состояния.",
+                "Списки в низком окне становятся короче, но не меньше 120 точек.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.4",
+        date = "2026-11-25",
+        title = "Настройки по прототипу",
+        sections = {
+            { kind = "added", items = {
+                "Меню Настроек слева: Общие, Оформление, Уведомления, Данные, Об аддоне, Обновления. В обычном окне видны значки (название во всплывающей подсказке), в широком — значки с названиями. У каждой страницы заголовок «Дневник приключений», название и подпись.",
+                "Общие: язык, кнопка у миникарты, запоминание вкладки, подсказка по кликам кнопки у миникарты, назначенные горячие клавиши («Не назначено», если клавиши нет) и кнопка «Открыть назначение клавиш».",
+                "Оформление: масштаб, текущая раскладка окна (только показ), отдельные «Сбросить масштаб» и «Сбросить размер и положение окна», выбор иллюстраций «Классика / С иллюстрациями» с состоянием ArtPack, «Анимации интерфейса» (плавное появление уведомлений), «Сбросить оформление».",
+                "Данные: «Сбросить все настройки» — все настройки, включая автосъёмку, возвращаются к исходным; история и достижения остаются.",
+                "Команда /fm diag — отчёт диагностики для копирования.",
+            } },
+            { kind = "improved", items = {
+                "Данные: четыре карточки (персонажи, воспоминания, дни с записями, уникальные зоны), у персонажей класс, уровень и день последней игры, кнопки «Экспорт», «Создать», «Импорт» и «Удалить историю персонажа».",
+                "Об аддоне: логотип, версия, описание, «Дизайн и разработка — Nedisan», «© 2026 Nedisan». Технический блок убран со страницы, диагностика — в /fm debug и /fm diag.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.3",
+        date = "2026-11-25",
+        title = "Изменение размера окна",
+        sections = {
+            { kind = "fixed", items = {
+                "Пока тянешь угол окна, содержимое больше не вылезает за рамку: лишнее обрезается, а после отпускания страницы перестраиваются под новую ширину.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.2",
+        date = "2026-11-25",
+        title = "Исправления после первой проверки в игре",
+        sections = {
+            { kind = "improved", items = {
+                "Содержимое окна растягивается по ширине вместе с рамкой (до 1000 точек, дальше остаётся по центру). Страницы перестраиваются, когда отпускаешь угол; открытая страница и подраздел сохраняются.",
+                "Длинные пояснения в Истории (игровое время, рекорды) переносятся на новую строку, а не обрываются на «…».",
+            } },
+            { kind = "fixed", items = {
+                "Угол окна: размер плавно следует за мышкой и больше не прыгает к обычному, а затем к максимальному размеру.",
+                "Ползунок прокрутки можно тянуть мышкой, а нажатие на полосу прокручивает к этому месту.",
+                "Галочки стоят ровно внутри квадратиков: флажки нарисованы картинками Obsidian Journal.",
+                "Звезда «Избранное» у снимков и ромб закрепления у достижений больше не похожи на стрелки: показывается только сам значок.",
+                "В истории посещений вместо «map:1415» — название карты или «Неизвестное место».",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta",
+        date = "2026-11-25",
+        title = "Локальная бета",
+        sections = {
+            { kind = "improved", items = {
+                "Версия 1.0.0-beta. Новых функций нет: только сборка для проверки в клиенте.",
+            } },
+        },
+    },
+    {
+        version = "0.18.0",
+        date = "2026-11-25",
+        title = "ArtPack и трекеры",
+        sections = {
+            { kind = "added", items = {
+                "Трекеры для достижений, которые ждали своей очереди: полёты на грифоне / ветрокрыле (от взлёта до посадки), первая поездка на наземном транспорте, вступление в группу и рейд, дни игры в группе и в гильдии, боссы подземелий и рейдов (всего и разные), смерти, Сумеречный лес ночью по времени сервера, возвращение в стартовую зону расы после максимального уровня, повторный визит в первую зону. Учитывается только то, что аддон увидел с этой версии; состояние при входе в игру — отправная точка, а не событие.",
+                "Необязательный ArtPack (отдельный аддон ForeverMemories_ArtPack): иллюстрации 51 зоны на карточке «Открытие» и в карточке локации в Истории. Без него всё работает как раньше; Настройки → «Оформление» показывают, найден ли он.",
+                "Истории зон: короткий рассказ о 47 зонах на русском и английском — на карточке новой локации и в карточке зоны.",
+                "Хроника: вехи (снимки, шаги, часы игры, золото, задания, смерти, «Превознесение», первые полёт, транспорт, группа и рейд) и полученные достижения. Три уровня записей (обычные, вехи, легендарные моменты) и переключатель «Все / Важные». Уже пройденные до обновления вехи записей не создают.",
+                "Рекорды: «было: …» у улучшенного рекорда и раздел «История рекордов». Рекорд текущего дня записывается, когда день закончился.",
+            } },
+            { kind = "improved", items = {
+                "Карточки «Открытие» и «Легендарный момент» в бою ждут его окончания (маленькая — нет).",
+                "Сборка создаёт и второй архив: ForeverMemories_ArtPack-v1.0.0.zip.",
+            } },
+        },
+    },
+    {
+        version = "0.17.0",
+        date = "2026-11-25",
+        title = "Настройки и уведомления",
+        sections = {
+            { kind = "added", items = {
+                "Три вида уведомлений: маленькая карточка «Снимок сохранён»; «Открытие» с компасом — новая локация, обычное или редкое достижение; «Легендарный момент» с золотой рамкой и лаврами — эпическое или легендарное достижение и снимок легендарного предмета. Строка в чате о полученном достижении.",
+                "Уведомления идут по одному, следующие ждут очереди (до пяти). Повтор того же уведомления добавляет «ещё N» вместо новой карточки (можно выключить). Если в момент снимка на экране карточка, она прячется и показывается снова после снимка.",
+                "Настройки → «Уведомления» (новая страница): общий переключатель, звук, каждый вид отдельно с кнопкой «Показать», продолжительность, место на экране (сверху, посередине, снизу), размер (мелкий, обычный, крупный), объединение повторов, восстановление настроек страницы.",
+                "Настройки → «Обновления» показываются на языке игры: английская история версий (CHANGELOG.en.md) для английского клиента, русская — для русского.",
+            } },
+            { kind = "improved", items = {
+                "Настройки → «Общие» стали «Оформлением»: язык, масштаб, переключатель шрифтов Obsidian Journal (с предложением перезагрузить интерфейс), кнопка у миникарты, запоминание вкладки, сброс окна. «Восстановить настройки по умолчанию» на каждой странице возвращает только её настройки.",
+            } },
+        },
+    },
+    {
+        version = "0.16.0",
+        date = "2026-11-25",
+        title = "Главная, Автоснимки, История",
+        sections = {
+            { kind = "added", items = {
+                "Главная: три карточки целей — закреплённые достижения и ближайшие к получению. Нажатие открывает «Зал воспоминаний».",
+                "«Зал воспоминаний»: кнопка-ромб у достижения закрепляет его на Главной (до трёх). Секретные, полученные и недоступные достижения не закрепляются.",
+                "Автоснимки: большой переключатель «Автоснимки включены / на паузе» с пояснением; у режимов съёмки маленькая схема экрана (с интерфейсом и без); события собраны в четыре группы («Развитие», «Сражения», «Добыча», «Мир»), которые раскрываются, у каждой счётчик и кнопка «Все / Ни одного»; таймер пассивной съёмки виден и на этой вкладке.",
+                "История → Снимки: звёздочка «Избранное» у каждого снимка, переключатель «Все / Избранные / Важные» (важные — избранные, уровни, боссы, эпические и легендарные предметы) и сортировка «По локации».",
+                "Шаги и Игровое время: период «90 дней» (по неделям) рядом с 7 и 30 днями.",
+            } },
+            { kind = "improved", items = {
+                "История: подразделы выбираются вертикальным меню значков слева, название — в подсказке. Итоги за всё время показываются только в «Обзоре» (и для всех персонажей), остальным подразделам достаётся вся высота окна.",
+                "Главная: локация и таймер пассивной съёмки стоят рядом в одной карточке.",
+            } },
+        },
+    },
+    {
+        version = "0.15.0",
+        date = "2026-11-25",
+        title = "Obsidian Journal",
+        sections = {
+            { kind = "added", items = {
+                "Оформление Obsidian Journal: тёмный непрозрачный фон с лёгкой фактурой, тёплое золото, светлый пергаментный текст, тонкие линии; новые цвета успеха, предупреждения и ошибки.",
+                "Шрифты Cormorant Garamond (заголовки) и Inter (текст и цифры) с полной кириллицей. Если игра не загрузит шрифт, используется её собственный — текст не пропадает. Команда /fm fonts включает и выключает их (после /reload).",
+                "Компас в шапке окна и на кнопке у миникарты; полный логотип — только на странице «Об аддоне».",
+                "Медальоны категорий и рамки редкости у достижений «Зала воспоминаний».",
+                "Размер окна меняется перетаскиванием правого нижнего угла; размер запоминается, окно не становится меньше обычного и больше экрана, а смена вкладки его не меняет. Списки Истории и страниц настроек растут вместе с окном.",
+            } },
+            { kind = "improved", items = {
+                "Кнопка «Восстановить положение окна» стала «Сбросить размер и положение окна» и /fm reset тоже возвращает обычный размер.",
+            } },
+        },
+    },
+    {
+        version = "0.14.0",
+        date = "2026-11-25",
+        title = "Hall of Memories",
+        sections = {
+            { kind = "added", items = {
+                "История → «Достижения» стали «Залом воспоминаний»: утверждённый каталог 1.0 — 100 достижений персонажа в 10 категориях по 10 (воспоминания, шаги, путешествия, локации, время, сражения, ремёсла и задания, общество, годовщины, особые) и 6 достижений аккаунта «Наследие Азерота». У каждого — редкость (обычное, редкое, эпическое, легендарное) цветом, условие, прогресс и дата, если она известна. Переключатель «Персонаж / Аккаунт», у каждой категории счётчик «получено / всего».",
+                "Пять секретных достижений: до получения видна только подсказка.",
+                "Четыре достижения помечены «Недоступно» с причиной: поездки на корабле и дирижабле (игра не сообщает о них аддонам) и полное прохождение подземелья и рейда (нет проверенного списка боссов). Достижения, учёт которых появится в следующих версиях, помечены «Учёт появится позже»; неизвестное значение не показывается как 0.",
+                "Новые источники прогресса, проверенные в клиенте Forever: наибольшая сумма денег, число выполненных заданий (засчитывается вся история персонажа), превознесение с фракциями, основные профессии (рыбалка, кулинария и первая помощь не считаются). Значения только растут: потраченные деньги или забытая профессия ничего не отнимают.",
+            } },
+            { kind = "improved", items = {
+                "Схема данных 6. 15 достижений 0.13.0 перенесены на новые ID с сохранением даты (или пометки «дата неизвестна»); ничего не получено и не потеряно при переносе.",
+                "Обновление сохранённых данных выполняется на копии: если хоть один итог (персонажи, снимки, шаги, дни, зоны, достижения) уменьшился бы, данные остаются как были, а аддон сообщает об этом в чате. Файл от более новой версии аддона больше не перезаписывается.",
+                "Неизвестные поля сохранённых данных больше не удаляются.",
+            } },
+        },
+    },
     {
         version = "0.13.0",
         date = "2026-11-25",
@@ -279,6 +569,485 @@ ns.CHANGELOG = {
                 "SavedVariables ForeverMemoriesDB с проверкой типов и восстановлением повреждённых данных.",
                 "Офлайн-тесты логики на mock API (lua5.1 tests/run.lua).",
                 "PROGRESS.md, API_COMPATIBILITY.md.",
+            } },
+        },
+    },
+}
+ns.CHANGELOG_EN = {
+    {
+        version = "1.0.0-beta.14",
+        date = "2026-11-25",
+        title = "All tests match the current version",
+        sections = {
+            { kind = "improved", items = {
+                "The full offline test suite (110) is updated to the current version and passes in full: data schema 6, the new settings pages, achievement catalog 1.0, notifications per kind.",
+                "The release build (tools/release.sh) runs both test suites.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.13",
+        date = "2026-11-25",
+        title = "Tidy documentation",
+        sections = {
+            { kind = "improved", items = {
+                "Documentation in two languages: README, changelog, progress, architecture and testing are in English and Russian.",
+                "The English changelog is now its own file and reaches the Changelog page the same way as the Russian one.",
+            } },
+            { kind = "removed", items = {
+                "Outdated specs, the work plan and the 0.5 design notes; what is current lives in docs/ARCHITECTURE.en.md and docs/TESTING.en.md.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.12",
+        date = "2026-11-25",
+        title = "Mini notification background fits the frame",
+        sections = {
+            { kind = "fixed", items = {
+                "Mini notification: the dark background follows the frame shape, reaching the gold lines and no longer sticking out past the rounded ends.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.11",
+        date = "2026-11-25",
+        title = "A tidy mini notification",
+        sections = {
+            { kind = "fixed", items = {
+                "Mini notification: the title and the text sit in the middle between the gold lines and stay clear of the \"x\".",
+                "The \"x\" of every notification is a plain mark inside the frame, with no square over the gold line; it turns gold under the mouse.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.10",
+        date = "2026-11-25",
+        title = "Own settings for each notification, character picker",
+        sections = {
+            { kind = "improved", items = {
+                "Notifications: the place on screen (top / middle / bottom) and the size (small / normal / large) are now in the \"Edit\" panel of each kind. The sample moves and resizes at once; \"Done\" saves.",
+                "\"Preview\" is a toggle: a second press hides the sample, and the button reads \"Hide\" meanwhile.",
+                "Kinds of notifications are tidy cards: on/off and the name, \"Preview\" and \"Edit\" on the first line, the time on screen on the second.",
+                "History: one list instead of the \"Character / All characters\" buttons and the \"Back to my character\" link: your character (first, marked \"Current\"), the others, \"All characters\". Choose yourself to go back.",
+            } },
+            { kind = "fixed", items = {
+                "Character list: no stray \" -\" after the name when the realm is unknown.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.9",
+        date = "2026-11-25",
+        title = "Notifications: everything in one place",
+        sections = {
+            { kind = "improved", items = {
+                "Settings / Notifications: an \"All notifications\" block on top with show, sound, wait for the end of combat, merge repeats, place and size. Choosing a place or a size applies to all kinds at once and clears their own places.",
+                "The \"Edit\" button of each kind: the panel with the scale and \"Lock\" opens right under the sample notification and follows it while it is dragged (above it near the bottom of the screen). The panel is opaque.",
+                "The Discovery and Legendary notifications have cut corners.",
+            } },
+            { kind = "fixed", items = {
+                "Mini notification: the icon has no second frame and sits in its slot; the dark background stays inside the gold line.",
+                "Home in a narrow window: goals show a percent instead of \"19,850 / 36,000\", and \"Nearest\" no longer runs into the number.",
+                "Settings in a narrow window: the row of menu icons no longer touches the page caption; the language list no longer covers its note.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.8",
+        date = "2026-11-25",
+        title = "Own art across the window",
+        sections = {
+            { kind = "improved", items = {
+                "Icons on the main tabs (Home, Auto capture, History, Settings); a narrow window shows the names only.",
+                "The addon's own icons instead of game icons: Home and Overview cards, Records, the Settings menu, Auto capture groups and modes, passive shots and new zones in the screenshot list, Chronicle.",
+                "Gold window corners and a compass on the footer line.",
+                "Achievements: larger medallions; earned ones in color with the frame of their rarity, the others grey.",
+                "Chronicle: an entry takes two lines (title and time, then details), so almost twice as many fit.",
+                "Auto capture: a group has \"Enable all\" / \"Disable all\" instead of \"All / None\".",
+                "Steps and play time charts: a day without activity shows \"—\", not \"0\".",
+            } },
+            { kind = "fixed", items = {
+                "Numbers in Records, the Data cards and the day summary use the Inter font, so \"10\" no longer looks like \"ıo\".",
+                "Appearance: the \"Illustrated\" label fits its button.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.7",
+        date = "2026-11-25",
+        title = "Week on Home, achievement counts, Russian zones",
+        sections = {
+            { kind = "added", items = {
+                "Home: \"This week\" with screenshots, steps, locations, active play and new locations since Monday; a click opens History / Overview. It sits next to \"Last adventure\".",
+                "Achievements: \"X / Y earned · X / Y available\", of all and of those that can be earned in Forever.",
+                "Russian zone names (48 from the zone catalog) when the addon speaks Russian and the game is in English. The location search finds both the Russian and the English name. Saved data does not change.",
+            } },
+            { kind = "improved", items = {
+                "The \"View screenshot history\" link is now to the right of the \"Latest screenshots\" heading.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.6",
+        date = "2026-11-25",
+        title = "Notifications: time, pause, own place",
+        sections = {
+            { kind = "added", items = {
+                "Its own time on screen for each kind: mini 3, 5 or 10 s (the earlier choice is kept), discovery 10, 15 or 20 s (15 by default), legendary 7, 10 or 15 s (10 by default).",
+                "The mouse over a notification pauses it; the \"x\" button closes it at once.",
+                "\"Position…\" for each kind: a sample stays on screen to be dragged with the mouse, scaled, locked or reset to the common place; \"Done\" saves, \"Cancel\" and leaving the page do not. While the editor is open, real notifications wait.",
+                "\"Wait for the end of combat\": a legendary card waits until the fight is over (can be turned off); a discovery card always waits.",
+            } },
+            { kind = "improved", items = {
+                "Shorter kind names: Mini, Discovery, Legendary (details in the tooltip).",
+                "\"Restore default settings\" on the Notifications page also resets the own places of the kinds.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.5",
+        date = "2026-11-25",
+        title = "A window of any size",
+        sections = {
+            { kind = "added", items = {
+                "The window can be made as small as 440×600. The layout follows the width by itself: compact (below 520), standard, wide (from 780).",
+                "A page that does not fit the height scrolls with the mouse wheel and a bar on the right (Home and the Settings pages).",
+                "In a wide window the History menu shows the names of the sections next to the icons.",
+            } },
+            { kind = "improved", items = {
+                "Compact window: the Settings menu is a row of icons above the page, the Data cards are in two columns, the date boxes and switches in History are narrower, the header keeps only the colored status dot.",
+                "Lists get shorter in a low window, but never below 120 points.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.4",
+        date = "2026-11-25",
+        title = "Settings by the prototype",
+        sections = {
+            { kind = "added", items = {
+                "A side menu in Settings: General, Appearance, Notifications, Data, About, Changelog. A normal window shows icons (the name is in the tooltip), a wide window shows icons with names. Every page has an \"Adventurer's Journal\" header with its title and subtitle.",
+                "General: language, minimap button, remember the last tab, what the minimap button clicks do, the assigned key bindings (\"Not assigned\" when there is no key) and \"Open game key bindings\".",
+                "Appearance: scale, the current window layout (shown only), separate \"Reset scale\" and \"Reset window size and position\", \"Classic / Illustrated\" zone pictures with the ArtPack state, \"Interface animations\" (notifications fade in) and \"Reset appearance\".",
+                "Data: \"Reset all settings\" puts every setting, Auto capture included, back to its default; history and achievements are kept.",
+                "The /fm diag command: the diagnostics report to copy.",
+            } },
+            { kind = "improved", items = {
+                "Data: four cards (characters, memories, tracked dates, unique zones), characters with class, level and the last day played, and \"Export\", \"Create\", \"Import\" and \"Delete character history\" buttons.",
+                "About: logo, version, description, \"Designed & developed by Nedisan\", \"© 2026 Nedisan\". The technical block left the page; diagnostics are in /fm debug and /fm diag.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.3",
+        date = "2026-11-25",
+        title = "Window resizing",
+        sections = {
+            { kind = "fixed", items = {
+                "While the window corner is dragged, the content no longer spills outside the frame: it is clipped, and the pages are rebuilt for the new width when the mouse is released.",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta.2",
+        date = "2026-11-25",
+        title = "Fixes after the first look in the game",
+        sections = {
+            { kind = "improved", items = {
+                "The content of the window stretches with its frame (up to 1000 points, then it stays centered). Pages are rebuilt when the corner is released; the open page and sub-page stay.",
+                "Long notes in History (playtime, records) wrap instead of ending in \"…\".",
+            } },
+            { kind = "fixed", items = {
+                "Window corner: the size follows the mouse smoothly and no longer jumps to the default and then to the largest size.",
+                "The scroll bar can be dragged with the mouse; a click on the bar scrolls there.",
+                "Checkmarks sit inside their boxes: the checkboxes use the Obsidian Journal pictures.",
+                "The Favorite star on screenshots and the pin diamond on achievements no longer look like arrows: only the icon itself is shown.",
+                "Visit history shows the map name or \"Unknown place\" instead of \"map:1415\".",
+            } },
+        },
+    },
+    {
+        version = "1.0.0-beta",
+        date = "2026-11-25",
+        title = "Local beta",
+        sections = {
+            { kind = "improved", items = {
+                "Version 1.0.0-beta. No new features: a build for testing in the client.",
+            } },
+        },
+    },
+    {
+        version = "0.18.0",
+        date = "2026-11-25",
+        title = "ArtPack & Trackers",
+        sections = {
+            { kind = "added", items = {
+                "Trackers for the achievements that were waiting: taxi flights (take-off to landing), the first ride on a ground mount, joining a party and a raid, days played in a group and in a guild, dungeon and raid bosses (total and different ones), deaths, Duskwood at night by the server clock, the race's starting zone after the level cap, a return to the first zone. Only what the add-on sees from this version on counts; the state at login is a starting point, not an event.",
+                "Optional ArtPack (a separate add-on, ForeverMemories_ArtPack): art for 51 zones on the Discovery card and on the location card in History. Without it everything works as before; Settings → Appearance shows whether it was found.",
+                "Zone stories: a short story for 47 zones in English and Russian, on the new location card and on the zone card.",
+                "Chronicle: milestones (screenshots, steps, hours played, gold, quests, deaths, Exalted, the first flight, mount, party and raid) and earned achievements. Three levels of entries (plain, milestones, legendary moments) and an \"All / Important\" switch. Milestones reached before the update create no entries.",
+                "Records: \"before: …\" next to an improved record and a \"Record history\" section. Today's record is written down once the day is over.",
+            } },
+            { kind = "improved", items = {
+                "Discovery and Legendary cards wait for the end of combat (the small card does not).",
+                "The build also makes a second archive: ForeverMemories_ArtPack-v1.0.0.zip.",
+            } },
+        },
+    },
+    {
+        version = "0.17.0",
+        date = "2026-11-25",
+        title = "Settings & Notifications",
+        sections = {
+            { kind = "added", items = {
+                "Three kinds of notifications: a small \"Screenshot saved\" card; \"Discovery\" with a compass for a new location and a common or rare achievement; \"Legendary moment\" with a golden frame and laurels for an epic or legendary achievement and a screenshot of a legendary item. A chat line for every earned achievement.",
+                "Notifications come one at a time, the next ones wait (up to five). The same notification again adds \"+N more\" instead of a new card (can be turned off). A card on screen at the moment of a screenshot is hidden and shown again right after it.",
+                "Settings → Notifications (a new page): the main switch, sound, each kind on its own with a \"Preview\" button, duration, position (top, middle, bottom), size (small, normal, large), merging, and restoring this page's defaults.",
+                "Settings → Changelog is shown in the language of the game: this English history in an English client, the Russian one in a Russian client.",
+            } },
+            { kind = "improved", items = {
+                "Settings → General became Appearance: language, scale, the Obsidian Journal fonts switch (with an offer to reload the interface), minimap button, last tab, window reset. \"Restore default settings\" on each page resets only that page.",
+            } },
+        },
+    },
+    {
+        version = "0.16.0",
+        date = "2026-11-25",
+        title = "Home, Auto Capture, History",
+        sections = {
+            { kind = "added", items = {
+                "Home: three goal cards — your pinned achievements and the ones closest to completion. A click opens the Hall of Memories.",
+                "Hall of Memories: the diamond button next to an achievement pins it to Home (up to three). Secret, earned and unavailable achievements cannot be pinned.",
+                "Auto capture: a large \"Auto capture is on / paused\" switch with a short explanation; each capture mode shows a small picture of the screen (with and without the interface); the events are in four groups (Progress, Combat, Loot, World) that open and close, each with a counter and an \"All / None\" button; the passive capture timer is on this tab too.",
+                "History → Screenshots: a \"Favorite\" star on every screenshot, an \"All / Favorites / Important\" switch (important = favorites, levels, bosses, epic and legendary items) and sorting \"By location\".",
+                "Steps and Playtime: a \"90 days\" range (by week) next to 7 and 30 days.",
+            } },
+            { kind = "improved", items = {
+                "History: sub-views are chosen from a vertical menu of icons on the left; the name is in the tooltip. Lifetime totals are shown only on Overview (and for all characters), so the other sub-views get the whole height of the window.",
+                "Home: the location and the passive timer share one card.",
+            } },
+        },
+    },
+    {
+        version = "0.15.0",
+        date = "2026-11-25",
+        title = "Obsidian Journal",
+        sections = {
+            { kind = "added", items = {
+                "Obsidian Journal look: a dark opaque background with a light texture, warm gold, parchment text and thin lines; new colors for success, warning and error.",
+                "Cormorant Garamond (headings) and Inter (text and numbers) fonts with full Cyrillic. If the game cannot load a font, its own font is used, so text never disappears. /fm fonts turns them on and off (after /reload).",
+                "A compass in the window header and on the minimap button; the full logo is on the About page.",
+                "Category medallions and rarity frames for the Hall of Memories.",
+                "The window can be resized by dragging its bottom-right corner; the size is remembered, never smaller than the default or larger than the screen. History and Settings lists grow with it.",
+            } },
+            { kind = "improved", items = {
+                "\"Reset window position\" became \"Reset window size and position\"; /fm reset also restores the default size.",
+            } },
+        },
+    },
+    {
+        version = "0.14.0",
+        date = "2026-11-25",
+        title = "Hall of Memories",
+        sections = {
+            { kind = "added", items = {
+                "History → Achievements became the Hall of Memories: the approved catalog 1.0 — 100 character achievements in 10 categories and 6 account achievements (\"Legacy of Azeroth\"). Each has a rarity, a condition, progress and the date when it is known. A \"Character / Account\" switch and an \"earned / total\" counter per category.",
+                "Five secret achievements: only a hint is visible until they are earned.",
+                "Four achievements are marked \"Not available\" with the reason (boat and zeppelin trips, full dungeon and raid clears). Achievements tracked in later versions say \"Tracking comes later\"; an unknown value is never shown as 0.",
+                "New progress sources confirmed in the Forever client: the most money held, completed quests, Exalted factions and primary professions. Values only grow.",
+            } },
+            { kind = "improved", items = {
+                "Saved data schema 6. The 15 achievements of 0.13.0 moved to the new IDs with their dates.",
+                "Saved data is updated on a copy: if any total would shrink, the data stays as it was and the add-on says so in chat. A file from a newer version is never overwritten.",
+                "Unknown fields of the saved data are no longer removed.",
+            } },
+        },
+    },
+    {
+        version = "0.13.0",
+        date = "2026-11-25",
+        title = "Memories & Achievements",
+        sections = {
+            { kind = "added", items = {
+                "History → Overview → \"On this day\": what happened a week, a month and a year ago.",
+                "Home → anniversary card: a week, 1, 3 and 6 months, then every year since the character's first login with ForeverMemories.",
+                "History → Achievements: 15 achievements of ForeverMemories with progress and dates.",
+            } },
+        },
+    },
+    {
+        version = "0.12.0",
+        date = "2026-11-25",
+        title = "Adventure Records",
+        sections = {
+            { kind = "added", items = {
+                "History → Records: the best day for steps, screenshots, locations and playtime, the longest session and the longest streak of days, each with its date.",
+                "History → \"Character / All characters\": account totals and the list of saved characters; a click opens a character's history read-only.",
+                "Home → \"Last adventure\": the last finished session; a click shows its details.",
+            } },
+        },
+    },
+    {
+        version = "0.11.0",
+        date = "2026-11-25",
+        title = "Location Analytics & Search",
+        sections = {
+            { kind = "added", items = {
+                "Locations: a click on a zone opens its card — active time, days, visits, steps, screenshots, first and last visit and the latest screenshots there.",
+                "Screenshots: search and filters (event type, location, dates, order).",
+            } },
+            { kind = "improved", items = {
+                "Dropdown lists longer than 14 rows scroll with the mouse wheel.",
+            } },
+        },
+    },
+    {
+        version = "0.10.0",
+        date = "2026-11-25",
+        title = "Settings & Identity",
+        sections = {
+            { kind = "added", items = {
+                "Settings are split into pages: General, Data, About and Changelog.",
+                "Data: saved characters, statistics export, backup and import (checked, never run as code), deleting another character's history after a confirmation.",
+                "About: the project, community links and diagnostics without personal data.",
+                "Key bindings in the game menu (AddOns): open the window, take a screenshot, pause auto capture, clean screenshot.",
+            } },
+            { kind = "improved", items = {
+                "Notifications stay 5 seconds by default (3 / 5 / 10 can be chosen); window scale 70–150 %.",
+            } },
+        },
+    },
+    {
+        version = "0.9.0",
+        date = "2026-11-24",
+        title = "Adventure History & World Explorer",
+        sections = {
+            { kind = "added", items = {
+                "History became an adventure diary: Overview (Adventure Calendar, the selected day, Recap), Screenshots, Steps, Locations (World Explorer with 51 zones), Playtime and Journey.",
+            } },
+        },
+    },
+    {
+        version = "0.8.3",
+        date = "2026-11-24",
+        sections = {
+            { kind = "improved", items = {
+                "Durations of a day or more are shown with days: \"5d 3h 30m\".",
+            } },
+        },
+    },
+    {
+        version = "0.8.2",
+        date = "2026-11-24",
+        sections = {
+            { kind = "improved", items = {
+                "\"Total playtime\" comes from the game (/played); the add-on's own count is the fallback.",
+            } },
+        },
+    },
+    {
+        version = "0.8.1",
+        date = "2026-11-24",
+        sections = {
+            { kind = "improved", items = {
+                "History: \"Days played\" was replaced with \"Total playtime\".",
+            } },
+        },
+    },
+    {
+        version = "0.8.0",
+        date = "2026-11-24",
+        sections = {
+            { kind = "added", items = {
+                "Playtime tracker: active play per day, without AFK and loading screens.",
+                "History → Locations and a lifetime dashboard.",
+            } },
+            { kind = "improved", items = {
+                "Home shows today only: screenshots, steps, locations, playtime, the current location and the passive capture countdown.",
+            } },
+        },
+    },
+    {
+        version = "0.7.0",
+        date = "2026-11-24",
+        sections = {
+            { kind = "improved", items = {
+                "Home: the \"Locations\" card became \"Total distance\".",
+            } },
+        },
+    },
+    {
+        version = "0.6.0",
+        date = "2026-11-24",
+        sections = {
+            { kind = "added", items = {
+                "Passive capture: one screenshot every 15 / 30 / 45 / 60 minutes of active play.",
+                "A chat line after every saved screenshot.",
+            } },
+            { kind = "improved", items = {
+                "The window is 620×720.",
+            } },
+        },
+    },
+    {
+        version = "0.5.1",
+        date = "2026-11-24",
+        sections = {
+            { kind = "improved", items = {
+                "Step tracker: one step is 1.5 m.",
+            } },
+        },
+    },
+    {
+        version = "0.5.0",
+        date = "2026-11-24",
+        title = "UX Update & Step Tracker",
+        sections = {
+            { kind = "added", items = {
+                "Step tracker, per-character statistics, the \"Rare item\" event, event and class icons.",
+            } },
+            { kind = "improved", items = {
+                "Four tabs (Home, Auto capture, History, Settings), two capture modes and nine events.",
+            } },
+            { kind = "removed", items = {
+                "Profiles, presets and many rarely used events and tools.",
+            } },
+        },
+    },
+    {
+        version = "0.4.2-beta",
+        date = "2026-11-24",
+        sections = {
+            { kind = "added", items = {
+                "Tooltips on every element of the window.",
+            } },
+        },
+    },
+    {
+        version = "0.4.1-beta",
+        date = "2026-11-24",
+        sections = {
+            { kind = "fixed", items = {
+                "Choice buttons open a list instead of cycling through the values.",
+            } },
+        },
+    },
+    {
+        version = "0.4.0-beta",
+        date = "2026-11-24",
+        sections = {
+            { kind = "added", items = {
+                "Automatic screenshots on game events, capture modes, a queue with limits, the journal, the minimap button and English and Russian.",
+            } },
+        },
+    },
+    {
+        version = "0.0.1",
+        date = "2026-11-24",
+        sections = {
+            { kind = "added", items = {
+                "The first version: a manual screenshot with /fm shot and diagnostics.",
             } },
         },
     },

@@ -7,6 +7,7 @@
 --   /fm status        short state in chat
 --   /fm debug         diagnostics: client, API, events, step tracker, passive timer
 --   /fm log           last 20 log lines
+--   /fm diag          diagnostics report in a copy box (v1.0.0-beta.4; was in About)
 --   /fm zones         zone catalog as the client sees it (also saved for /reload)
 --   /fm ui            show the game interface again (emergency)
 --   /fm reset         window back to the center
@@ -95,6 +96,17 @@ function commands.debug()
     Print(string.format("Diary: sessions %d, longest %ds, since %s, journey %d, catalog %s %d/%d, max level %s",
         sessions, longest, tostring(ns.Activity.SinceDay()), #character.journey.events, explorer.status,
         explorer.visited, explorer.total, tostring(ns.API.MaxLevel())))
+    -- v0.18.0: trackers and the sources the client has (no = stays unknown).
+    if ns.Trackers then
+        local t, src = ns.Trackers.Data(character), ns.Trackers.Sources()
+        local yes = function(v) return v and "yes" or "no" end
+        Print(string.format("Trackers: taxi %d, mount %s, party %d, raid %d, bosses %d, deaths %d; sources taxi %s, mount %s, group %s, guild %s, game time %s",
+            t.taxi, yes(t.mount), t.partyJoins, t.raidJoins, t.bosses, t.deaths,
+            yes(src.taxi), yes(src.mount), yes(src.group), yes(src.guild), yes(src.gameTime)))
+    end
+    if ns.ArtPack then
+        Print(string.format("ArtPack: %s, zones %d", tostring((ns.ArtPack.Status())), ns.ArtPack.Count() or 0))
+    end
 end
 
 -- Zone catalog check (v0.9.0): every catalog area with the client's name,
@@ -123,11 +135,23 @@ function commands.ui()
 end
 
 function commands.reset()
-    ns.UI.ResetPosition()
+    ns.UI.ResetGeometry()
+end
+
+-- Obsidian Journal fonts on/off (v0.15.0); applies after /reload.
+function commands.fonts()
+    ns.db.settings.fonts = not ns.db.settings.fonts
+    Print(string.format(L.FONTS_TOGGLED, ns.db.settings.fonts and L.ON or L.OFF,
+        ns.Fonts.ok and "" or (" " .. L.FONTS_NOT_LOADED)))
+end
+
+-- The diagnostics report (no names, realm or GUID) to copy (v1.0.0-beta.4).
+function commands.diag()
+    ns.UI.ShowCopyText(L.COPY_DIAGNOSTICS, ns.DataTools.DiagnosticsText(), L.DIAGNOSTICS_HINT)
 end
 
 function commands.help()
-    Print("/fm  |  on  off  toggle  |  shot  |  status  debug  log  zones  |  ui  reset")
+    Print("/fm  |  on  off  toggle  |  shot  |  status  debug  diag  log  zones  |  ui  reset  fonts")
 end
 
 SLASH_FOREVERMEMORIES1 = "/fm"

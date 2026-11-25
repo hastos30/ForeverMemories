@@ -89,7 +89,7 @@ end
 ---------------------------------------------------------------------------
 test("T01 fresh install: all defaults, nothing to set up", function()
     local _, ns = start()
-    eq(ns.db.schemaVersion, 5, "schema")
+    eq(ns.db.schemaVersion, 6, "schema")
     local s = ns.db.settings
     eq(s.enabled, true, "auto capture on")
     eq(s.mode, "normal", "normal shot")
@@ -136,7 +136,7 @@ end
 test("migration 0.4.2 -> 0.5.0 keeps history, stats and compatible settings", function()
     local _, ns = start({ savedDB = oldDB() })
     local db = ns.db
-    eq(db.schemaVersion, 5, "schema")
+    eq(db.schemaVersion, 6, "schema")
     eq(db.settings.enabled, false, "pause kept")
     eq(db.settings.locale, "ruRU", "language kept")
     eq(db.settings.sound, true, "sound kept (it was set)")
@@ -210,7 +210,7 @@ test("T24 damaged data is repaired without errors", function()
     eq(s.events.LEVEL, true, "event repaired") eq(s.events.RARE, nil, "unknown event removed")
     local c = ns.db.characters["Forever:Nedisan"]
     eq(#c.shots, 1, "bad records removed") eq(c.steps.total, 0, "steps total") eq(c.steps.days.a, nil, "bad day")
-    eq(ns.db.extraKey, nil, "unknown key removed")
+    eq(ns.db.extraKey, true, "unknown top-level key kept (v0.14.0: never lose data)")
 end)
 
 ---------------------------------------------------------------------------
@@ -964,7 +964,7 @@ test("data from 0.7.0 is kept; new fields are added without a migration", functi
     saved.characters["Forever:Nedisan"].locations = { days = { bad = 5, ["2026-11-20"] = { x = 1 } } }
     local env2 = Mock.new({ savedDB = saved })
     local ns2 = env2.login(".")
-    eq(ns2.db.schemaVersion, 5, "same schema")
+    eq(ns2.db.schemaVersion, 6, "same schema")
     eq(ns2.History.Stats().total, 1, "shots kept") eq(ns2.Steps.Total(), 500, "steps kept")
     eq(type(ns2.character.playtime.days), "table", "playtime added")
     eq(ns2.Locations.OnDay("2026-11-20"), 0, "damaged entries removed")
@@ -994,6 +994,16 @@ end
 local function findButton(env, text)
     for _, frame in ipairs(env.frames) do
         if frame.kind == "Button" and type(rawget(frame, "label")) == "table" and frame.label.text == text then
+            return frame
+        end
+    end
+end
+
+-- The same, but only a button that is shown (list rows reuse hidden buttons).
+local function findShownButton(env, text)
+    for _, frame in ipairs(env.frames) do
+        if frame.kind == "Button" and type(rawget(frame, "label")) == "table" and frame.label.text == text
+            and frame:IsVisible() then
             return frame
         end
     end
@@ -1302,7 +1312,7 @@ test("migration 0.8 -> 0.9: diary from real records only, nothing lost, runs onc
     env.fire("PLAYER_LOGIN")
     env.fire("PLAYER_ENTERING_WORLD")
     local c = ns.character
-    eq(ns.db.schemaVersion, 5, "schema 5")
+    eq(ns.db.schemaVersion, 6, "schema 6")
     eq(#c.shots, 8, "shots kept") eq(ns.Steps.Total(), 9436, "steps kept")
     eq(c.playtime.days["2026-11-20"], 3600, "playtime kept")
     eq(c.playtime.sinceDay, "2026-11-20", "playtime counted since its first day")
@@ -1355,9 +1365,12 @@ test("journey: levels, max level, first boss / items / duel, guild; independent 
     env.advance(70)
     env.fire("CHAT_MSG_SYSTEM", "Nedisan has defeated Bob in a duel")
     env.advance(2)
-    local rows = ns.Journey.Rows()
-    local kinds = {}
-    for _, e in ipairs(rows) do kinds[#kinds + 1] = e.kind end
+    -- Earned achievements are journey events too (v0.14.0); this test is
+    -- about the other kinds, so they are left out here.
+    local rows, kinds = {}, {}
+    for _, e in ipairs(ns.Journey.Rows()) do
+        if e.kind ~= "ACHIEVEMENT" then rows[#rows + 1] = e; kinds[#kinds + 1] = e.kind end
+    end
     eq(table.concat(kinds, ","), "FIRST_DUEL,FIRST_EPIC,FIRST_RAID_BOSS,FIRST_DUNGEON_BOSS,MAX_LEVEL,LEVEL,START",
         "newest first, each first once, start last")
     eq(rows[4].info, "Boss A", "boss name") eq(rows[5].info, 12, "max level")
@@ -1570,29 +1583,30 @@ test("v0.10 settings: new defaults, scale 70-150 %, four pages under Settings", 
     eq(high.db.settings.scale, 1.5, "150 % allowed")
 end)
 
-test("v0.10 restore defaults: general settings only, after confirmation", function()
+test("restore defaults: Reset appearance resets only its page, after confirmation", function()
     local env, ns = start()
     env.autoConfirm = false
     local s = ns.db.settings
-    s.scale, s.minimap, s.rememberTab, s.sound, s.toastDuration, s.notifications = 1.4, false, false, true, 10, false
+    s.scale, s.locale, s.minimap, s.notifications, s.durationMini = 1.4, "ruRU", false, false, 10
     s.mode, s.passive, s.enabled, s.events.LEVEL = "clean", false, false, false
     ns.db.ui.point = { "CENTER", "CENTER", 5, 5 }
     levelUp(env, 11)
     ns.Engine.ManualShot()
     env.advance(2)
     local before = #shots(ns)
+    s.locale = "enUS"
     ns.UI.Toggle("settings")
-    findButton(env, "Restore default settings"):Click()
+    findButton(env, "Appearance"):Click()
+    findButton(env, "Reset appearance"):Click()
     eq(s.scale, 1.4, "nothing changed before the answer")
     env.autoConfirm = true
-    findButton(env, "Restore default settings"):Click()
+    findButton(env, "Reset appearance"):Click()
     eq(s.scale, 1, "scale")
-    eq(s.minimap, true, "minimap")
-    eq(s.rememberTab, true, "tab")
-    eq(s.sound, false, "sound")
-    eq(s.toastDuration, 5, "duration")
-    eq(s.notifications, true, "notifications")
     eq(ns.db.ui.point, nil, "window position")
+    eq(s.locale, "enUS", "language kept")
+    eq(s.minimap, false, "minimap kept")
+    eq(s.notifications, false, "notifications kept")
+    eq(s.durationMini, 10, "notification time kept")
     eq(s.mode, "clean", "capture mode kept")
     eq(s.passive, false, "passive kept")
     eq(s.enabled, false, "pause kept")
@@ -1618,20 +1632,28 @@ test("v0.10 remember tab: last tab after /reload; off -> Home", function()
     eq(ns3.UI.CurrentTab(), "home", "reopened on Home")
 end)
 
-test("v0.10 notifications: duration 3/5/10, test notification even when off", function()
+test("notifications: own time per kind, Preview works even when off and toggles", function()
     local env, ns = start()
-    ns.db.settings.toastDuration = 10
+    ns.db.settings.durationMini = 10
     ns.db.settings.notifications = false
     ns.UI.Toggle("settings")
-    findButton(env, "Test notification"):Click()
-    eq(_G.ForeverMemoriesToast:IsShown(), true, "shown")
+    findButton(env, "Notifications"):Click()
+    local preview = findButton(env, "Preview") -- the first card is the mini one
+    preview:Click()
+    eq(_G.ForeverMemoriesToast:IsShown(), true, "shown although notifications are off")
+    eq(ns.Notifications.IsPreviewing("mini"), true, "it is the preview")
     env.advance(9)
     eq(_G.ForeverMemoriesToast:IsShown(), true, "still shown at 9 s")
     env.advance(2)
     eq(_G.ForeverMemoriesToast:IsShown(), false, "gone after 10 s")
+    ns.Notifications.Test("mini")
+    eq(ns.Notifications.IsPreviewing("mini"), true, "shown again")
+    ns.Notifications.Test("mini")
+    eq(ns.Notifications.IsPreviewing("mini"), false, "a second press hides it")
     eq(#shots(ns), 0, "no screenshot")
     findButton(env, "3 sec"):Click()
-    eq(ns.db.settings.toastDuration, 3, "3 s chosen")
+    eq(ns.db.settings.durationMini, 3, "3 s chosen for the mini kind")
+    noErrors(ns)
 end)
 
 test("v0.10 serialize: round trip, and nothing but the format is accepted", function()
@@ -1683,7 +1705,7 @@ test("v0.10 backup and import: checked, confirmed, restored; never executed", fu
     eq(ns.db.characters["Forever:Alt"], nil, "alt deleted")
 
     eq(select(2, ns.DataTools.CheckBackup("hello")), "format", "not a backup")
-    local newer = string.gsub(text, "^FMB1:5:", "FMB1:9:")
+    local newer = string.gsub(text, "^FMB1:%d+:", "FMB1:9:")
     eq(select(2, ns.DataTools.CheckBackup(newer)), "newer", "newer schema refused")
     local plan = assert(ns.DataTools.CheckBackup(text))
     eq(plan.characters, 2, "two characters")
@@ -1694,7 +1716,7 @@ test("v0.10 backup and import: checked, confirmed, restored; never executed", fu
     env.autoConfirm = true
     ns.UI.Toggle("settings")
     findButton(env, "Data"):Click()
-    findButton(env, "Import data"):Click()
+    findButton(env, "Import"):Click()
     _G.ForeverMemoriesTextDialog.edit:SetText(text)
     findButton(env, "Check"):Click()
     eq(#shots(ns), shotsBefore, "shots restored")
@@ -1727,39 +1749,38 @@ test("v0.10 data page: storage, characters, delete asks with the name", function
     env.autoConfirm = false
     ns.UI.Toggle("settings")
     findButton(env, "Data"):Click()
-    eq(hasText(env, "Unavailable"), true, "no memory API in the mock")
-    findButton(env, "Delete"):Click()
+    findShownButton(env, "Delete"):Click()
     eq(string.find(env.popups[#env.popups], "Aeloria", 1, true) ~= nil, true, "name in the question")
     eq(ns.db.characters["Forever:Aeloria"] ~= nil, true, "not deleted without an answer")
     eq(ns.DataTools.Delete(ns.characterKey), false, "current character is cleared, not deleted")
     env.autoConfirm = true
-    findButton(env, "Delete"):Click()
+    findShownButton(env, "Delete"):Click()
     eq(ns.db.characters["Forever:Aeloria"], nil, "deleted")
-    findButton(env, "Clear"):Click()
+    findButton(env, "Delete…"):Click()
     eq(string.find(env.popups[#env.popups], "Nedisan", 1, true) ~= nil, true, "name in the question")
     eq(#shots(ns), 0, "current cleared")
     eq(ns.character.name, "Nedisan", "identity kept")
     eq(type(ns.character.journey.started), "number", "tracking starts again")
     eq(ns.Locations.Total(), 1, "current zone recorded again")
-    findButton(env, "Export statistics"):Click()
+    findButton(env, "Export"):Click()
     eq(string.find(dialogText(), "Nedisan", 1, true) ~= nil, true, "export has the character")
-    findButton(env, "Backup"):Click()
+    findButton(env, "Create"):Click()
     eq(string.sub(dialogText(), 1, 5), "FMB1:", "backup text")
+    -- Memory in use moved to the diagnostics report (v1.0.0-beta.4).
+    eq(string.find(ns.DataTools.DiagnosticsText(), "Unavailable", 1, true) ~= nil, true, "no memory API in the mock")
     _G.GetAddOnMemoryUsage = function() return 248.4 end
     _G.UpdateAddOnMemoryUsage = function() end
-    findButton(env, "General"):Click()
-    findButton(env, "Data"):Click()
-    eq(hasText(env, "248 KB"), true, "memory in KB")
+    eq(string.find(ns.DataTools.DiagnosticsText(), "248 KB", 1, true) ~= nil, true, "memory in KB")
     noErrors(ns)
 end)
 
-test("v0.10 about: no invented links; diagnostics without personal data", function()
+test("about: only confirmed facts and links; diagnostics without personal data", function()
     local env, ns = start()
     ns.UI.Toggle("settings")
     findButton(env, "About"):Click()
-    eq(hasText(env, "Project pages are not published yet. Links appear here when they exist."), true, "note")
+    eq(hasText(env, "Nedisan"), true, "the approved author")
+    eq(hasText(env, "Community and support"), false, "no links while none is confirmed")
     eq(hasText(env, "Copy link"), false, "no links")
-    eq(hasText(env, "Author"), false, "no invented author")
     eq(hasText(env, "License"), false, "no invented license")
     local report = ns.DataTools.DiagnosticsText()
     for _, private in ipairs({ "Nedisan", "Forever:", "Player-1-0000ABCD", "Heroes" }) do
@@ -1767,18 +1788,8 @@ test("v0.10 about: no invented links; diagnostics without personal data", functi
     end
     eq(string.find(report, "1.60.1 (71037)", 1, true) ~= nil, true, "client build")
     eq(string.find(report, "16001", 1, true) ~= nil, true, "interface")
-    for _, frame in ipairs(env.frames) do
-        if type(rawget(frame, "title")) == "table" and frame.title.text == "Technical information" then
-            frame:Click()
-        end
-    end
-    for _, frame in ipairs(env.frames) do
-        if type(rawget(frame, "items")) == "function" and frame:IsShown() then
-            frame:Scroll(-100) -- to the end of the page
-        end
-    end
-    eq(hasText(env, "Screenshot engine"), true, "technical block opens")
-    findButton(env, "Copy diagnostics"):Click()
+    eq(string.find(report, "Screenshot engine", 1, true) ~= nil, true, "technical lines")
+    SlashCmdList.FOREVERMEMORIES("diag") -- the report moved to /fm diag (v1.0.0-beta.4)
     eq(string.find(dialogText(), "ForeverMemories diagnostics", 1, true) ~= nil, true, "copy box")
     ns.ProjectInfo.links[1].url = "https://example.invalid/repo"
     findButton(env, "General"):Click()
@@ -1788,12 +1799,14 @@ test("v0.10 about: no invented links; diagnostics without personal data", functi
     noErrors(ns)
 end)
 
-test("v0.10 changelog: generated from CHANGELOG.md, newest open, what's new mark", function()
+test("v0.10 changelog: generated from CHANGELOG.md and CHANGELOG.en.md, newest open, what's new mark", function()
     local builder = assert(loadfile("tools/changelog.lua"))("changelog")
     local current = assert(io.open("Modules/ChangelogData.lua")):read("*a")
     eq(builder.Build(".") == current, true, "Modules/ChangelogData.lua is up to date (run lua5.1 tools/changelog.lua)")
     local env, ns = start()
     eq(ns.CHANGELOG[1].version, ns.version, "newest entry is this version")
+    eq(ns.CHANGELOG_EN[1].version, ns.version, "the English history too (CHANGELOG.en.md)")
+    eq(#ns.CHANGELOG_EN, #ns.CHANGELOG, "both languages have every version")
     eq(ns.UI.WhatsNew(), false, "fresh install: nothing new")
     local saved = ns.db
     saved.ui.seenVersion = "0.9.0"
@@ -1802,7 +1815,8 @@ test("v0.10 changelog: generated from CHANGELOG.md, newest open, what's new mark
     ns2.UI.Toggle("settings")
     findButton(env2, "Changelog"):Click()
     eq(hasText(env2, "v" .. ns2.version), true, "version card")
-    eq(hasText(env2, "Added"), true, "newest is open")
+    local firstKind = ns2.UI.ChangelogList()[1].sections[1].kind
+    eq(hasText(env2, ns2.L["CHANGELOG_" .. string.upper(firstKind)]), true, "newest is open")
     eq(ns2.UI.WhatsNew(), false, "seen")
     noErrors(ns2)
 end)
@@ -2096,7 +2110,7 @@ test("v0.12 all characters: totals, union of zones, read-only view, back to curr
     eq(t.zones, mine.zones + 1, "union of zones")
     eq(t.playtime, mine.playtime + 3600, "addon time summed")
     ns.UI.Toggle("history")
-    findButton(env, "All characters"):Click()
+    ns.UI.TabView("history").Pick("account") -- beta.10: the character list
     eq(hasText(env, "Saved characters"), true, "list")
     eq(hasText(env, "Active play (addon)"), true, "addon time, not /played")
     local row
@@ -2113,10 +2127,10 @@ test("v0.12 all characters: totals, union of zones, read-only view, back to curr
         findButton(env, name):Click()
         eq(ns.character, current, "restored after " .. name)
     end
-    findButton(env, "<  Back to my character"):Click()
+    ns.UI.TabView("history").Pick(ns.characterKey) -- back: choose yourself
     eq(hasText(env, "Read-only view"), false, "back")
     -- Opening the tab again starts with the current character.
-    findButton(env, "All characters"):Click()
+    ns.UI.TabView("history").Pick("account")
     ns.UI.ShowTab("home")
     ns.UI.ShowTab("history")
     eq(select(1, ns.UI.TabView("history").Mode()), "character", "reset to the character")
@@ -2126,11 +2140,13 @@ end)
 test("v0.12 history: seven sub-views in two rows, all build in Russian", function()
     local env, ns = start({ locale = "ruRU" })
     ns.UI.Toggle("history")
-    for _, name in ipairs({ "Обзор", "Рекорды", "Все персонажи", "Персонаж" }) do
+    for _, name in ipairs({ "Обзор", "Рекорды" }) do
         local button = findButton(env, name)
         eq(button ~= nil, true, name)
         button:Click()
     end
+    ns.UI.TabView("history").Pick("account") -- beta.10: «Все персонажи» is in the list
+    ns.UI.TabView("history").Pick(ns.characterKey)
     noErrors(ns)
 end)
 
@@ -2213,54 +2229,61 @@ test("v0.13 anniversary: week, months, years from the first login; not every day
     noErrors(ns)
 end)
 
-test("v0.13 achievements: progress, earned date, unknown date for old progress, never revoked", function()
+test("achievements: progress, earned date, unknown date for old progress, never revoked", function()
     local env, ns = start()
-    local function get(id)
-        for _, a in ipairs(ns.Achievements.Get()) do
-            if a.def.id == id then return a end
+    local function finder(n)
+        return function(id)
+            for _, a in ipairs(n.Achievements.Get()) do
+                if a.def.id == id then return a end
+            end
         end
     end
-    eq(#ns.Achievements.LIST, 15, "fifteen achievements")
-    eq(get("FIRST_MEMORY").done, false, "no shot yet")
+    local get = finder(ns)
+    local characterCount, accountCount = 0, 0
+    for _, def in ipairs(ns.Achievements.CATALOG.list) do
+        if def.scope == "character" then characterCount = characterCount + 1 else accountCount = accountCount + 1 end
+    end
+    eq(characterCount, 100, "100 character achievements") eq(accountCount, 6, "6 account achievements")
+    eq(get("fm.memories.first").done, false, "no shot yet")
     ns.Engine.ManualShot()
     env.advance(3)
-    local first = get("FIRST_MEMORY")
+    ns.Achievements.Check()
+    local first = get("fm.memories.first")
     eq(first.done, true, "first screenshot")
     eq(type(first.at), "number", "date known: earned while playing")
-    eq(get("PHOTOGRAPHER").value, 1, "progress 1") eq(get("PHOTOGRAPHER").target, 100, "of 100")
-    -- Progress from before 0.13.0: earned, date unknown.
+    eq(get("fm.memories.photographer").value, 1, "progress 1")
+    eq(get("fm.memories.photographer").target, 100, "of 100")
+    -- Progress from before the achievements existed: earned, date unknown.
     local saved = ns.db
     local char = saved.characters[ns.characterKey]
     char.achievements = nil
     char.shotsTotal = 150
     local _, ns2 = start({ savedDB = saved })
-    local function get2(id)
-        for _, a in ipairs(ns2.Achievements.Get()) do
-            if a.def.id == id then return a end
-        end
-    end
-    eq(get2("PHOTOGRAPHER").done, true, "earned before")
-    eq(get2("PHOTOGRAPHER").at, nil, "date not invented")
-    eq(ns2.character.achievements.done.PHOTOGRAPHER, 0, "stored as unknown")
+    ns2.Achievements.Check()
+    local get2 = finder(ns2)
+    eq(get2("fm.memories.photographer").done, true, "earned before")
+    eq(get2("fm.memories.photographer").at, nil, "date not invented")
+    eq(ns2.character.achievements.unlocked["fm.memories.photographer"].src, "seed", "stored as already reached")
     -- Never revoked: a stored achievement stays even if progress is lower.
-    ns2.character.achievements.done.EK_EXPLORER = 12345
-    eq(get2("EK_EXPLORER").done, true, "kept")
+    ns2.character.achievements.unlocked["fm.memories.keeper"] = { at = 12345, src = "live" }
     ns2.character.shotsTotal = 0
-    eq(get2("MEMORY_KEEPER").done, false, "not earned")
-    eq(get2("PHOTOGRAPHER").done, true, "still earned")
+    eq(get2("fm.memories.keeper").done, true, "kept")
+    eq(get2("fm.memories.master").done, false, "not earned")
+    eq(get2("fm.memories.photographer").done, true, "still earned")
     noErrors(ns2)
 end)
 
-test("v0.13 achievements view: eight sub-views, filters, English and Russian", function()
+test("achievements view: filters and category headings, English and Russian", function()
     for _, locale in ipairs({ "enUS", "ruRU" }) do
         local env, ns = start({ locale = locale })
         ns.UI.Toggle("history", "achievements")
         local names = locale == "enUS" and { "Completed", "In progress", "All" } or { "Выполненные", "В процессе", "Все" }
         for _, name in ipairs(names) do
-            findButton(env, name):Click()
+            local button = findButton(env, name)
+            eq(button ~= nil, true, "filter " .. name)
+            button:Click()
         end
-        eq(hasText(env, locale == "enUS" and "Photography" or "Фотографирование"), true, "group heading")
-        eq(findButton(env, locale == "enUS" and "Achievements" or "Достижения") ~= nil, true, "eighth button")
+        eq(hasText(env, ns.L.ACH_CAT_MEMORIES), true, "group heading")
         noErrors(ns)
     end
 end)

@@ -126,7 +126,7 @@ end
 ---------------------------------------------------------------------------
 local function searchText(record)
     local parts = { History.Title(record), L["EVENT_" .. tostring(record.ev)] }
-    if type(record.zone) == "string" then parts[#parts + 1] = record.zone end
+    if type(record.zone) == "string" then parts[#parts + 1] = ns.ZoneText(record.zone) end
     if type(record.info) == "string" or type(record.info) == "number" then
         parts[#parts + 1] = tostring(record.info)
     end
@@ -149,6 +149,11 @@ function History.Matches(record, filter, query)
             return false
         end
     end
+    if filter.show == "fav" and not record.fav then
+        return false
+    elseif filter.show == "important" and not History.IsImportant(record) then
+        return false
+    end
     if query and query ~= "" and not string.find(searchText(record), query, 1, true) then
         return false
     end
@@ -169,7 +174,41 @@ function History.Search(filter)
             result[#result + 1] = record
         end
     end
+    if filter.order == "zone" then
+        -- By location A-Z, the newest first inside a location (v0.16.0).
+        local function key(r)
+            return type(r.zone) == "string" and r.zone ~= "" and ns.Util.Lower(r.zone) or "\255"
+        end
+        table.sort(result, function(x, y)
+            local kx, ky = key(x), key(y)
+            if kx ~= ky then
+                return kx < ky
+            end
+            return x.t > y.t
+        end)
+    end
     return result
+end
+
+-- Important screenshots (v0.16.0): favorites and the events of the highest
+-- priorities (levels, bosses, epic and legendary items).
+function History.IsImportant(record)
+    if record.fav then
+        return true
+    end
+    local trigger = ns.Registry.TRIGGERS[record.ev]
+    return trigger ~= nil and trigger.priority ~= nil and trigger.priority <= 2
+end
+
+-- Marks or unmarks a screenshot of the current character as a favorite.
+-- Only a flag on the record: nothing else changes, nothing is deleted.
+function History.ToggleFavorite(record)
+    if ns.readOnly or type(record) ~= "table" then
+        return false
+    end
+    record.fav = not record.fav or nil
+    notify()
+    return record.fav == true
 end
 
 -- Zones that appear in the shot history, sorted (location filter).
@@ -205,7 +244,7 @@ end
 function History.Detail(record)
     local parts = {}
     if type(record.zone) == "string" and record.zone ~= "" then
-        parts[#parts + 1] = record.zone
+        parts[#parts + 1] = ns.ZoneText(record.zone)
     end
     if type(record.info) == "string" and record.info ~= "" then
         parts[#parts + 1] = record.info

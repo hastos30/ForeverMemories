@@ -26,7 +26,7 @@ local function emit(kind, key, info)
         ns.SafeCall("journey", ns.Journey.OnEvent, kind, info, zone)
     end
     for i = 1, #Events.listeners do -- v0.12.0: session recap (levels)
-        ns.SafeCall("event listener", Events.listeners[i], kind, info)
+        ns.SafeCall("event listener", Events.listeners[i], kind, info, key)
     end
     ns.Engine.Submit({
         type = kind,

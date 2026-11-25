@@ -166,7 +166,7 @@ end
 -- True when the character is marked AFK. UnitIsAFK is a standard client
 -- function, not yet checked in Forever: if it is missing or returns a
 -- secret value, the character is treated as not AFK (see
--- API_COMPATIBILITY.md, "Пассивная съёмка").
+-- docs/TESTING.md, section 3).
 function API.IsAFK()
     local isAFK = API.Resolve("UnitIsAFK")
     if not isAFK then
@@ -218,7 +218,7 @@ function API.PlayerGUID()
 end
 
 -- Storage key of the current character: "Realm:Name".
--- Why not the GUID: see API_COMPATIBILITY.md ("Идентификация персонажа").
+-- Why not the GUID: see docs/TESTING.md, section 3.
 function API.CharacterKey()
     local name, realm = API.PlayerName(), API.RealmName()
     if not name or not realm then
@@ -480,8 +480,148 @@ function API.ReloadUI()
     return true
 end
 
+---------------------------------------------------------------------------
+-- Progress sources (v0.14.0). Each was checked in the Forever client on
+-- 2026-11-25 (docs/TESTING.md, section 3). nil = unknown, never 0.
+---------------------------------------------------------------------------
+
+-- Money of the character in copper, or nil.
+function API.Money()
+    local value = call("GetMoney")
+    return plainNumber(value) and value or nil
+end
+
+-- Number of quests the client reports as completed, or nil.
+function API.CompletedQuestCount()
+    local fn = API.Resolve("C_QuestLog.GetAllCompletedQuestIDs")
+    if not fn then
+        return nil, "C_QuestLog.GetAllCompletedQuestIDs unavailable"
+    end
+    local ok, ids = pcall(fn)
+    if not ok or type(ids) ~= "table" then
+        return nil, "no list"
+    end
+    return #ids
+end
+
+-- Faction IDs with Exalted standing (reaction 8), or nil. Headers skipped.
+API.EXALTED = 8
+function API.ExaltedFactionIDs()
+    local count = API.Resolve("C_Reputation.GetNumFactions")
+    local byIndex = API.Resolve("C_Reputation.GetFactionDataByIndex")
+    if not count or not byIndex then
+        return nil, "C_Reputation unavailable"
+    end
+    local ok, n = pcall(count)
+    if not ok or not plainNumber(n) then
+        return nil, "no count"
+    end
+    local ids = {}
+    for i = 1, n do
+        local ok2, data = pcall(byIndex, i)
+        if ok2 and type(data) == "table" and not data.isHeader and plainNumber(data.factionID)
+            and plainNumber(data.reaction) and data.reaction >= API.EXALTED then
+            ids[#ids + 1] = data.factionID
+        end
+    end
+    return ids
+end
+
+-- Primary professions (the first two values of GetProfessions; fishing,
+-- cooking and first aid come after them and are never included):
+-- { { skillLine, rank, maxRank }, ... } or nil. maxRank is the cap of the
+-- current rank (150 for Journeyman), not the cap of the profession.
+function API.PrimaryProfessions()
+    local list = API.Resolve("GetProfessions")
+    local info = API.Resolve("GetProfessionInfo")
+    if not list or not info then
+        return nil, "GetProfessions unavailable"
+    end
+    local ok, p1, p2 = pcall(list)
+    if not ok then
+        return nil, "GetProfessions failed"
+    end
+    local result = {}
+    for _, index in pairs({ p1, p2 }) do
+        local ok2, _, _, rank, maxRank, _, _, skillLine = pcall(info, index)
+        if ok2 and plainNumber(skillLine) and plainNumber(rank) then
+            result[#result + 1] = { skillLine = skillLine, rank = rank, maxRank = plainNumber(maxRank) and maxRank or nil }
+        end
+    end
+    return result
+end
+
+-- "Alliance" / "Horde", or nil (neutral, unknown).
+function API.FactionGroup()
+    local group = call("UnitFactionGroup", "player")
+    if group == "Alliance" or group == "Horde" then
+        return group
+    end
+    return nil
+end
+
+-- Race file name ("Human", "Scourge"), or nil.
+function API.RaceFile()
+    local _, file = call("UnitRace", "player")
+    if type(file) == "string" and file ~= "" and not API.IsSecret(file) then
+        return file
+    end
+    return nil
+end
+
+-- Server game clock: hours, minutes (Duskwood at night), or nil.
+function API.GameTime()
+    local h, m = call("GetGameTime")
+    if plainNumber(h) and plainNumber(m) then
+        return h, m
+    end
+    return nil
+end
+
 function API.Print(message)
     if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
         DEFAULT_CHAT_FRAME:AddMessage("|cffC9A35EForeverMemories|r: " .. tostring(message))
     end
+end
+
+-- v1.0.0-beta.4: the key assigned to a binding (Bindings.xml name), or
+-- nil when none is assigned or the client has no GetBindingKey. Standard
+-- client function, not yet checked in Forever.
+function API.BindingKey(action)
+    local fn = API.Resolve("GetBindingKey")
+    if not fn then
+        return nil
+    end
+    local ok, key = pcall(fn, action)
+    if ok and type(key) == "string" and key ~= "" and not API.IsSecret(key) then
+        return key
+    end
+    return nil
+end
+
+-- Opens the game's Key Bindings window: the classic KeyBindingFrame or
+-- the Mainline Settings category, whichever the client has. Returns true when it was asked to open, false when the
+-- client has no such window (the player opens it from the game menu) or
+-- during combat. Not yet checked in Forever: see docs/TESTING.md.
+function API.OpenKeyBindings()
+    if API.InCombat() then
+        return false
+    end
+    local load = API.Resolve("KeyBindingFrame_LoadUI")
+    if load then
+        pcall(load)
+    end
+    local show = API.Resolve("ShowUIPanel")
+    local frame = rawget(_G, "KeyBindingFrame")
+    if show and type(frame) == "table" then
+        return (pcall(show, frame))
+    end
+    -- Mainline clients (Forever may be one): the Settings panel category.
+    local open = API.Resolve("Settings.OpenToCategory")
+    local settings = rawget(_G, "Settings")
+    local category = type(settings) == "table" and settings.KEYBINDINGS_CATEGORY_ID
+    if open and category ~= nil then
+        return (pcall(open, category))
+    end
+    return false
 end

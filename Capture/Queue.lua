@@ -1,5 +1,5 @@
 -- Capture/Queue.lua
--- Bounded priority queue of capture requests (SPECIFICATION.md section 4).
+-- Bounded priority queue of capture requests (docs/ARCHITECTURE.md, section 3).
 -- Lower priority number = more important. Equal priority: first in, first out.
 local _, ns = ...
 

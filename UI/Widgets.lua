@@ -18,25 +18,29 @@ local function rgb(hex)
     }
 end
 
--- Palette from the spec (14.1).
+-- Obsidian Journal palette (v0.15.0, TZ v1.0 §1): background #1B1815,
+-- surfaces #2D2821, gold #D0AB70, text #EDDFC5, secondary #B0A18B,
+-- lines #504232; success #8CAC80, warning #D5AD62, error #C57570.
 W.COLORS = {
-    background = rgb("141311"),
-    panel = rgb("211E18"),
-    gold = rgb("C9A35E"),
-    heading = rgb("DFBD80"),
-    text = rgb("DFD4BE"),
-    muted = rgb("A59D90"),
-    active = rgb("83AE67"),
-    divider = rgb("453B2A"),
-    selected = rgb("4A3B22"),  -- selected tab / mode card
-    hover = rgb("2C2820"),
-    error = rgb("D9534F"),
+    background = rgb("1B1815"),
+    panel = rgb("2D2821"),
+    gold = rgb("D0AB70"),
+    heading = rgb("D0AB70"),
+    text = rgb("EDDFC5"),
+    muted = rgb("B0A18B"),
+    active = rgb("8CAC80"),
+    warning = rgb("D5AD62"),
+    divider = rgb("504232"),
+    selected = rgb("4A3C27"),  -- selected tab / mode card (gold over the surface)
+    hover = rgb("38322A"),
+    error = rgb("C57570"),
     paused = rgb("8A857C"),
+    rare = rgb("88A5CE"), epic = rgb("B198C9"), legendary = rgb("D8A558"),
 }
 
 W.HEX = {
-    gold = "|cffC9A35E", heading = "|cffDFBD80", text = "|cffDFD4BE",
-    muted = "|cffA59D90", active = "|cff83AE67", error = "|cffD9534F",
+    gold = "|cffD0AB70", heading = "|cffD0AB70", text = "|cffEDDFC5",
+    muted = "|cffB0A18B", active = "|cff8CAC80", error = "|cffC57570", warning = "|cffD5AD62",
 }
 
 function W.Backdrop(frame, color, alpha, border, borderAlpha)
@@ -130,7 +134,7 @@ end
 -- Text, icons, lines
 ---------------------------------------------------------------------------
 function W.Text(parent, text, template, color)
-    local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontHighlight")
+    local fs = parent:CreateFontString(nil, "OVERLAY", ns.Fonts.Template(template or "GameFontHighlight"))
     fs:SetJustifyH("LEFT")
     fs:SetText(text or "")
     local c = color or W.COLORS.text
@@ -149,9 +153,46 @@ end
 function W.Icon(parent, texture, size)
     local icon = parent:CreateTexture(nil, "ARTWORK")
     icon:SetSize(size, size)
-    icon:SetTexture(texture)
-    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    function icon:SetIcon(path)
+        self:SetTexture(path)
+        -- Game icons have a border to crop; the addon's own art does not.
+        if ns.Media.IsOwn(path) then
+            self:SetTexCoord(0, 1, 0, 1)
+        else
+            self:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        end
+    end
+    icon:SetIcon(texture)
     return icon
+end
+
+-- An achievement medallion with its rarity frame on top (v0.15.0). Both
+-- are centered; the frame is a little larger than the medallion so the
+-- two rims never double up.
+function W.Medallion(parent, size)
+    local holder = CreateFrame("Frame", nil, parent)
+    holder:SetSize(size, size)
+    local art = holder:CreateTexture(nil, "ARTWORK")
+    art:SetPoint("CENTER")
+    art:SetSize(size * 0.78, size * 0.78)
+    local rim = holder:CreateTexture(nil, "OVERLAY")
+    rim:SetPoint("CENTER")
+    rim:SetSize(size, size)
+    -- v1.0.0-beta.8: `locked` = grey and dim (desaturated where the client
+    -- can), so an earned medallion stands out in full color.
+    function holder:Set(medallion, frame, alpha, locked)
+        art:SetTexture(medallion)
+        rim:SetTexture(frame)
+        rim:SetShown(frame ~= nil)
+        if art.SetDesaturated then
+            art:SetDesaturated(locked and true or false)
+            rim:SetDesaturated(locked and true or false)
+        end
+        art:SetAlpha(alpha or 1)
+        rim:SetAlpha(alpha or 1)
+    end
+    holder.art, holder.rim = art, rim
+    return holder
 end
 
 -- An icon in a small dark square (event rows, cards).
@@ -161,7 +202,7 @@ function W.IconBox(parent, texture, size)
     box.icon = W.Icon(box, texture, size - 8)
     box.icon:SetPoint("CENTER")
     function box:SetIcon(path)
-        self.icon:SetTexture(path)
+        self.icon:SetIcon(path)
     end
     return box
 end
@@ -229,6 +270,105 @@ function W.Button(parent, text, width, height, onClick)
     return button
 end
 
+-- A border from a square 9-slice texture (v0.17.0: notifications): corners
+-- keep their size, edges stretch. `texSize` and `corner` are in texture
+-- pixels; `size` is the corner on screen. Only SetTexCoord is used.
+-- `filled` (v1.0.0-beta.9): the texture also holds the background, so the
+-- center is drawn too and everything goes to the BACKGROUND layer (a card
+-- with cut corners has no square backdrop under it).
+function W.NineSlice(frame, file, texSize, corner, size, filled)
+    local c = corner / texSize
+    local parts = {}
+    local function part(l, r, t, b)
+        local tex = frame:CreateTexture(nil, filled and "BACKGROUND" or "BORDER", nil, filled and -1 or nil)
+        tex:SetTexture(file)
+        tex:SetTexCoord(l, r, t, b)
+        parts[#parts + 1] = tex
+        return tex
+    end
+    local tl = part(0, c, 0, c); tl:SetSize(size, size); tl:SetPoint("TOPLEFT")
+    local tr = part(1 - c, 1, 0, c); tr:SetSize(size, size); tr:SetPoint("TOPRIGHT")
+    local bl = part(0, c, 1 - c, 1); bl:SetSize(size, size); bl:SetPoint("BOTTOMLEFT")
+    local br = part(1 - c, 1, 1 - c, 1); br:SetSize(size, size); br:SetPoint("BOTTOMRIGHT")
+    local top = part(c, 1 - c, 0, c); top:SetPoint("TOPLEFT", tl, "TOPRIGHT"); top:SetPoint("BOTTOMRIGHT", tr, "BOTTOMLEFT")
+    local bottom = part(c, 1 - c, 1 - c, 1); bottom:SetPoint("TOPLEFT", bl, "TOPRIGHT"); bottom:SetPoint("BOTTOMRIGHT", br, "BOTTOMLEFT")
+    local left = part(0, c, c, 1 - c); left:SetPoint("TOPLEFT", tl, "BOTTOMLEFT"); left:SetPoint("BOTTOMRIGHT", bl, "TOPRIGHT")
+    local right = part(1 - c, 1, c, 1 - c); right:SetPoint("TOPLEFT", tr, "BOTTOMLEFT"); right:SetPoint("BOTTOMRIGHT", br, "TOPRIGHT")
+    if filled then
+        local center = part(c, 1 - c, c, 1 - c)
+        center:SetPoint("TOPLEFT", tl, "BOTTOMRIGHT")
+        center:SetPoint("BOTTOMRIGHT", br, "TOPLEFT")
+    end
+    return parts
+end
+
+-- Square icon button (v0.16.0: the History menu). The name is kept in a
+-- hidden label (tooltip title, tests) and shown in the tooltip.
+function W.IconButton(parent, texture, size, name, tip, onClick)
+    local button = W.Button(parent, name, size, size, onClick)
+    button.label:Hide()
+    button.icon = button:CreateTexture(nil, "ARTWORK")
+    button.icon:SetPoint("CENTER")
+    button.icon:SetSize(size - 10, size - 10)
+    button.icon:SetTexture(texture)
+    local mark = button:CreateTexture(nil, "OVERLAY")
+    local g = W.COLORS.gold
+    mark:SetColorTexture(g[1], g[2], g[3], 1)
+    mark:SetWidth(3)
+    mark:SetPoint("TOPLEFT", 0, -4)
+    mark:SetPoint("BOTTOMLEFT", 0, 4)
+    mark:Hide()
+    local setSelected = button.SetSelected
+    function button:SetSelected(value)
+        setSelected(self, value)
+        mark:SetShown(self.selected)
+        self.icon:SetAlpha((self.selected or self.hovered) and 1 or 0.75)
+    end
+    button:SetSelected(false)
+    W.Tooltip(button, tip, name)
+    return button
+end
+
+-- Side menu entry (v1.0.0-beta.4: Settings): an icon and the name, left
+-- aligned, with the gold mark of the selected entry. `collapsed` shows the
+-- icon only; the name is then in the tooltip (and kept in the label).
+function W.MenuButton(parent, texture, text, width, height, onClick, collapsed)
+    local button = W.Button(parent, text, width, height, onClick)
+    button.icon = button:CreateTexture(nil, "ARTWORK")
+    button.icon:SetSize(collapsed and height - 10 or 20, collapsed and height - 10 or 20)
+    button.icon:SetTexture(texture)
+    -- Game icons have a border to crop; the addon's own art does not.
+    if not ns.Media.IsOwn(texture) then
+        button.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    end
+    button.label:ClearAllPoints()
+    if collapsed then
+        button.icon:SetPoint("CENTER")
+        button.label:Hide()
+        W.Tooltip(button, nil, text)
+    else
+        button.icon:SetPoint("LEFT", 10, 0)
+        button.label:SetPoint("LEFT", button.icon, "RIGHT", 8, 0)
+        button.label:SetPoint("RIGHT", -6, 0)
+        button.label:SetJustifyH("LEFT")
+    end
+    local mark = button:CreateTexture(nil, "OVERLAY")
+    local g = W.COLORS.gold
+    mark:SetColorTexture(g[1], g[2], g[3], 1)
+    mark:SetWidth(3)
+    mark:SetPoint("TOPLEFT", 0, -4)
+    mark:SetPoint("BOTTOMLEFT", 0, 4)
+    mark:Hide()
+    local setSelected = button.SetSelected
+    function button:SetSelected(value)
+        setSelected(self, value)
+        mark:SetShown(self.selected)
+        self.icon:SetAlpha((self.selected or self.hovered) and 1 or 0.75)
+    end
+    button:SetSelected(false)
+    return button
+end
+
 -- Text link such as "View all screenshots ->".
 function W.Link(parent, text, onClick)
     local button = CreateFrame("Button", nil, parent)
@@ -247,16 +387,15 @@ end
 function W.Check(parent, label, get, set, width)
     local check = CreateFrame("Button", nil, parent)
     check:SetSize(width or 300, 24)
-    local box = W.Panel(check, W.COLORS.background, W.COLORS.gold)
-    box:SetSize(16, 16)
-    box:SetPoint("LEFT", 2, 0)
-    box:EnableMouse(false)
-    local mark = box:CreateTexture(nil, "OVERLAY")
-    mark:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-    mark:SetSize(20, 20)
-    mark:SetPoint("CENTER", 1, 0)
+    -- v1.0.1: the Obsidian checkbox art (the box and the mark are one
+    -- picture, so the mark can never slip out of the box). The art fills
+    -- 26..102 of 128 px: the crop keeps a thin margin around it.
+    local box = check:CreateTexture(nil, "ARTWORK")
+    box:SetSize(20, 20)
+    box:SetPoint("LEFT", 0, 0)
+    box:SetTexture(ns.Media.DECOR.checkbox_off)
+    box:SetTexCoord(0.17, 0.83, 0.17, 0.83)
     local g = W.COLORS.gold
-    mark:SetVertexColor(g[1], g[2], g[3])
     check.label = W.Text(check, label)
     check.label:SetPoint("LEFT", box, "RIGHT", 10, 0)
     check.label:SetPoint("RIGHT", check, "RIGHT", 0, 0)
@@ -275,12 +414,18 @@ function W.Check(parent, label, get, set, width)
         if parent.Refresh then parent:Refresh() end
     end)
     function check:Refresh()
-        mark:SetShown(self.available and get() and true or false)
+        local on = self.available and get() and true or false
+        box:SetTexture(on and ns.Media.DECOR.checkbox_on or ns.Media.DECOR.checkbox_off)
+        box:SetTexCoord(0.17, 0.83, 0.17, 0.83)
+        if box.SetDesaturated then
+            box:SetDesaturated(not self.available)
+        end
+        box:SetAlpha(self.available and 1 or 0.5)
         local c = self.available and W.COLORS.text or W.COLORS.muted
         self.label:SetTextColor(c[1], c[2], c[3])
-        local b = self.available and W.COLORS.gold or W.COLORS.divider
-        box:SetBackdropBorderColor(b[1], b[2], b[3], 1)
     end
+    check.box = box
+    check.IsOn = function() return check.available and get() and true or false end
     -- An event the client cannot report is shown greyed out.
     function check:SetAvailable(value)
         self.available = value and true or false
@@ -487,6 +632,115 @@ function W.Slider(parent, width, min, max, step, get, set)
 end
 
 ---------------------------------------------------------------------------
+-- Height of a wrapped text at `width` (v1.0.1, shared). Measured with a
+-- hidden font string when the client can, estimated otherwise.
+---------------------------------------------------------------------------
+local measurer
+function W.TextHeight(text, width, template)
+    text = tostring(text or "")
+    if not measurer then
+        measurer = UIParent:CreateFontString(nil, "OVERLAY", template or "GameFontHighlightSmall")
+        measurer:Hide()
+        if measurer.SetWordWrap then measurer:SetWordWrap(true) end
+    end
+    measurer:SetFontObject(template or "GameFontHighlightSmall")
+    measurer:SetWidth(width)
+    measurer:SetText(text)
+    local height = measurer:GetStringHeight()
+    if type(height) == "number" and height > 0 then
+        return math.ceil(height)
+    end
+    local chars = select(2, string.gsub(text, "[^\128-\191]", ""))
+    return math.max(1, math.ceil(chars * 6 / width)) * 13
+end
+
+---------------------------------------------------------------------------
+-- Scroll bar (v1.0.1): a track along the right edge and a thumb that can be
+-- dragged with the mouse; a click on the track moves the thumb there.
+-- setFraction(f) scrolls the list to f (0 = top, 1 = bottom).
+---------------------------------------------------------------------------
+W.SCROLLBAR_WIDTH = 8
+
+local function cursorY(frame)
+    local _, y = GetCursorPosition()
+    return (y or 0) / (frame:GetEffectiveScale() or 1)
+end
+
+local function makeScrollBar(box, setFraction)
+    local c = W.COLORS
+    local track = CreateFrame("Button", nil, box)
+    track:SetWidth(W.SCROLLBAR_WIDTH)
+    track:SetPoint("TOPRIGHT", box, "TOPRIGHT", 0, 0)
+    track:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", 0, 0)
+    if track.SetFrameLevel and box.GetFrameLevel then
+        track:SetFrameLevel((box:GetFrameLevel() or 1) + 20)
+    end
+    local rail = track:CreateTexture(nil, "BACKGROUND")
+    rail:SetWidth(2)
+    rail:SetPoint("TOP", track, "TOP", 0, 0)
+    rail:SetPoint("BOTTOM", track, "BOTTOM", 0, 0)
+    rail:SetColorTexture(c.divider[1], c.divider[2], c.divider[3], 0.8)
+    local thumb = CreateFrame("Button", nil, track)
+    thumb:SetWidth(W.SCROLLBAR_WIDTH)
+    local knob = thumb:CreateTexture(nil, "ARTWORK")
+    knob:SetWidth(4)
+    knob:SetPoint("TOP", thumb, "TOP", 0, 0)
+    knob:SetPoint("BOTTOM", thumb, "BOTTOM", 0, 0)
+    knob:SetColorTexture(c.gold[1], c.gold[2], c.gold[3], 0.7)
+    local glow = thumb:CreateTexture(nil, "HIGHLIGHT")
+    glow:SetAllPoints(knob)
+    glow:SetColorTexture(c.heading[1], c.heading[2], c.heading[3], 0.5)
+    track.thumb = thumb
+
+    local view, size, top = 0, 0, 0 -- track height, thumb height, thumb offset
+    local function free() return math.max(1, view - size) end
+    -- Places the thumb: viewHeight of the list, thumbHeight, fraction 0..1.
+    function track:Place(viewHeight, thumbHeight, fraction)
+        view, size = viewHeight, thumbHeight
+        top = (view - size) * fraction
+        thumb:SetHeight(size)
+        thumb:ClearAllPoints()
+        thumb:SetPoint("TOP", track, "TOP", 0, -top)
+    end
+    local function moveTo(newTop)
+        newTop = math.max(0, math.min(newTop, view - size))
+        setFraction(newTop / free())
+    end
+    -- Drag: the thumb follows the cursor from where it was grabbed.
+    local grab
+    local function stop(self)
+        grab = nil
+        self:SetScript("OnUpdate", nil)
+    end
+    thumb:SetScript("OnMouseDown", function(self)
+        grab = { y = cursorY(self), top = top }
+        self:SetScript("OnUpdate", function(frame)
+            if not grab then return end
+            if IsMouseButtonDown and not IsMouseButtonDown("LeftButton") then
+                return stop(frame)
+            end
+            moveTo(grab.top + (grab.y - cursorY(frame)))
+        end)
+    end)
+    thumb:SetScript("OnMouseUp", stop)
+    thumb:SetScript("OnHide", stop)
+    -- A click on the track: the thumb's middle goes under the cursor.
+    track:SetScript("OnMouseDown", function(self)
+        local trackTop = self:GetTop()
+        if type(trackTop) == "number" then
+            moveTo(trackTop - cursorY(self) - size / 2)
+        end
+    end)
+    track:EnableMouseWheel(true)
+    track:SetScript("OnMouseWheel", function(_, delta) box:Scroll(delta) end)
+    -- For the tests: drag by dy pixels (positive = down).
+    function track:DragBy(dy)
+        moveTo(top + dy)
+    end
+    return track
+end
+
+---------------------------------------------------------------------------
 -- Scrolling list that creates only the rows that fit on screen and
 -- refills them while scrolling: thousands of records, a dozen frames.
 --   makeRow(parent) -> row frame       fillRow(row, item)
@@ -503,14 +757,13 @@ function W.ScrollList(parent, width, height, rowHeight, makeRow, fillRow)
         row:SetSize(width - 8, rowHeight)
         rows[i] = row
     end
-    local c = W.COLORS
-    local bar = box:CreateTexture(nil, "OVERLAY")
-    bar:SetColorTexture(c.gold[1], c.gold[2], c.gold[3], 0.6)
-    bar:SetWidth(3)
-
     local function maxOffset()
         return math.max(0, #items - visible)
     end
+    local bar = makeScrollBar(box, function(fraction)
+        offset = math.floor(fraction * maxOffset() + 0.5)
+        box:Redraw()
+    end)
     function box:Redraw()
         offset = ns.Util.Clamp(offset, 0, maxOffset(), 0)
         for i, row in ipairs(rows) do
@@ -523,10 +776,7 @@ function W.ScrollList(parent, width, height, rowHeight, makeRow, fillRow)
             end
         end
         if maxOffset() > 0 then
-            local barHeight = math.max(20, height * visible / #items)
-            bar:SetHeight(barHeight)
-            bar:ClearAllPoints()
-            bar:SetPoint("TOPRIGHT", box, "TOPRIGHT", 0, -(height - barHeight) * offset / maxOffset())
+            bar:Place(height, math.max(24, height * visible / #items), offset / maxOffset())
             bar:Show()
         else
             bar:Hide()
@@ -545,6 +795,7 @@ function W.ScrollList(parent, width, height, rowHeight, makeRow, fillRow)
     end
     box:SetScript("OnMouseWheel", function(self, delta) self:Scroll(delta) end)
     box.rows = rows
+    box.bar = bar
     return box
 end
 
@@ -568,17 +819,26 @@ function W.FlexList(parent, width, height, kinds)
     end
     local items, tops, total, scroll = {}, {}, 0, 0
     local pools = {}
-    local c = W.COLORS
-    local bar = box:CreateTexture(nil, "OVERLAY")
-    bar:SetColorTexture(c.gold[1], c.gold[2], c.gold[3], 0.6)
-    bar:SetWidth(3)
 
+    -- v1.0.1: a kind may measure its item (wrapped text): measure(item, w).
     local function heightOf(item)
-        return item.height or kinds[item.kind].height
+        if item.height then
+            return item.height
+        end
+        local kind = kinds[item.kind]
+        if kind.measure then
+            item.measured = item.measured or math.max(kind.height, kind.measure(item, width - 8))
+            return item.measured
+        end
+        return kind.height
     end
     local function maxScroll()
         return math.max(0, total - height)
     end
+    local bar = makeScrollBar(box, function(fraction)
+        scroll = fraction * maxScroll()
+        box:Redraw()
+    end)
     local function take(kind)
         local pool = pools[kind]
         if not pool then
@@ -620,10 +880,7 @@ function W.FlexList(parent, width, height, kinds)
             end
         end
         if maxScroll() > 0 then
-            local barHeight = math.max(20, height * height / total)
-            bar:SetHeight(barHeight)
-            bar:ClearAllPoints()
-            bar:SetPoint("TOPRIGHT", box, "TOPRIGHT", 0, -(height - barHeight) * scroll / maxScroll())
+            bar:Place(height, math.max(24, height * height / total), scroll / maxScroll())
             bar:Show()
         else
             bar:Hide()
@@ -659,8 +916,104 @@ function W.FlexList(parent, width, height, kinds)
     function box:Offset()
         return scroll
     end
+    -- New visible height (the window was resized, v0.15.0).
+    function box:SetViewHeight(newHeight)
+        if newHeight and newHeight > 0 and newHeight ~= height then
+            height = newHeight
+            self:SetHeight(height)
+            self:Redraw()
+        end
+    end
+    function box:ViewHeight()
+        return height
+    end
     box:SetScript("OnMouseWheel", function(self, delta) self:Scroll(delta) end)
     box.items = function() return items end
+    box.bar = bar
+    return box
+end
+
+-- Lists that grow with the window (v0.15.0): their height is
+-- base + extra, where extra = window height - default window height.
+W.stretchable = {}
+W.extraHeight = 0
+function W.Stretch(list)
+    W.stretchable[#W.stretchable + 1] = { list = list, base = list:ViewHeight() }
+    if W.extraHeight ~= 0 then
+        list:SetViewHeight(math.max(W.MIN_LIST_HEIGHT, list:ViewHeight() + W.extraHeight))
+    end
+    return list
+end
+-- The pages are built again at a new width (v1.0.1): their old lists go.
+function W.ForgetStretched()
+    W.stretchable = {}
+end
+-- v1.0.0-beta.5: extra is negative in a window lower than the default; a
+-- list keeps at least W.MIN_LIST_HEIGHT.
+W.MIN_LIST_HEIGHT = 120
+function W.SetExtraHeight(extra)
+    W.extraHeight = extra or 0
+    for _, entry in ipairs(W.stretchable) do
+        entry.list:SetViewHeight(math.max(W.MIN_LIST_HEIGHT, entry.base + W.extraHeight))
+    end
+end
+
+---------------------------------------------------------------------------
+-- Scroll page (v1.0.0-beta.5): a page with a fixed layout (Home, most
+-- Settings pages) inside a ScrollFrame. It scrolls with the mouse wheel
+-- and a scroll bar when the window is lower than the page. The bar sits in
+-- the window margin right of the page, so the page keeps its full width.
+-- Build the page into box.child, then call box:SetContentHeight(h).
+---------------------------------------------------------------------------
+W.SCROLL_STEP = 40
+function W.ScrollPage(parent, width)
+    local box = CreateFrame("Frame", nil, parent)
+    box:SetAllPoints(parent)
+    local scroll = CreateFrame("ScrollFrame", nil, box)
+    scroll:SetAllPoints(box)
+    local child = CreateFrame("Frame", nil, scroll)
+    child:SetSize(width, 1)
+    scroll:SetScrollChild(child)
+    box.scroll, box.child = scroll, child
+    local contentHeight, offset = 0, 0
+
+    local function viewHeight()
+        local h = box:GetHeight()
+        return (type(h) == "number" and h > 0) and h or contentHeight
+    end
+    local bar
+    function box:Update()
+        local view = viewHeight()
+        local free = math.max(0, contentHeight - view)
+        offset = math.max(0, math.min(offset, free))
+        scroll:SetVerticalScroll(offset)
+        bar:SetShown(free > 0)
+        if free > 0 then
+            bar:Place(view, math.max(24, view * view / contentHeight), offset / free)
+        end
+    end
+    bar = makeScrollBar(box, function(fraction)
+        offset = fraction * math.max(0, contentHeight - viewHeight())
+        box:Update()
+    end)
+    bar:ClearAllPoints()
+    bar:SetPoint("TOPLEFT", box, "TOPRIGHT", 4, 0)
+    bar:SetPoint("BOTTOMLEFT", box, "BOTTOMRIGHT", 4, 0)
+    box.bar = bar
+
+    function box:SetContentHeight(h)
+        contentHeight = h
+        child:SetHeight(h)
+        self:Update()
+    end
+    function box:Scroll(delta)
+        offset = offset - delta * W.SCROLL_STEP
+        self:Update()
+    end
+    function box:Offset() return offset end
+    scroll:EnableMouseWheel(true)
+    scroll:SetScript("OnMouseWheel", function(_, delta) box:Scroll(delta) end)
+    W.AddScript(box, "OnSizeChanged", function() box:Update() end)
     return box
 end
 

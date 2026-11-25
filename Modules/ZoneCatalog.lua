@@ -4,7 +4,7 @@
 -- character.
 --
 -- Catalog: a static list of AreaTable IDs, checked on 2026-11-24 against
--- three community catalogs of Forever 1.60.1 (see API_COMPATIBILITY.md,
+-- three community catalogs of Forever 1.60.1 (git history: API_COMPATIBILITY.md,
 -- "v0.9.0: каталог зон"). The IDs are stable and do not depend on the
 -- language. Names come from the client (C_Map.GetAreaInfo) in its own
 -- language. An ID the client does not know is left out, so every count
@@ -138,15 +138,27 @@ local function namesOfKeys(character)
     return names
 end
 
--- Exploration of the current character:
---   { status, complete, visited, total, percent (nil if not confirmed),
---     regions = { { id, name, visited, total, percent, zones = {
---         { area, name, visited, firstAt } } } } }
-function ZoneCatalog.Explorer()
-    local catalog = ZoneCatalog.Resolve()
-    local character = ns.character or {}
+-- Capitals (AreaTable IDs) for "Capital Calling" (v0.14.0).
+ZoneCatalog.CAPITALS = { [1519] = true, [1537] = true, [1497] = true, [1657] = true, [1637] = true, [1638] = true }
+
+-- Catalog area of a zone name the client wrote (shots), or nil.
+function ZoneCatalog.AreaOfName(name)
+    local zone = type(name) == "string" and ZoneCatalog.Resolve().byName[name]
+    return zone and zone.area or nil
+end
+
+-- Catalog area of a visit key of `character`, or nil.
+function ZoneCatalog.AreaOfKey(character, key)
     local names = namesOfKeys(character)
-    local visits = {} -- area -> earliest registered visit time (or true)
+    local zone = ZoneCatalog.ZoneOfKey(key, names[key])
+    return zone and zone.area or nil
+end
+
+-- { [area] = earliest visit time or true } of the catalog zones `character`
+-- visited (any character, not only the logged-in one).
+function ZoneCatalog.VisitedAreas(character)
+    local names = namesOfKeys(character)
+    local visits = {}
     for key in pairs(character.visited or {}) do
         local zone = ZoneCatalog.ZoneOfKey(key, names[key])
         if zone then
@@ -157,6 +169,16 @@ function ZoneCatalog.Explorer()
             end
         end
     end
+    return visits
+end
+
+-- Exploration of the current character:
+--   { status, complete, visited, total, percent (nil if not confirmed),
+--     regions = { { id, name, visited, total, percent, zones = {
+--         { area, name, visited, firstAt } } } } }
+function ZoneCatalog.Explorer(character)
+    local catalog = ZoneCatalog.Resolve()
+    local visits = ZoneCatalog.VisitedAreas(character or ns.character or {}) -- area -> earliest visit (or true)
     local result = { status = catalog.status, complete = catalog.status ~= "unavailable",
                      visited = 0, total = 0, regions = {} }
     for _, region in ipairs(catalog.regions) do

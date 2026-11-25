@@ -122,3 +122,95 @@ end
 
 table.insert(ns.History.listeners, Records.Invalidate)
 table.insert(ns.Locations.listeners, Records.Invalidate)
+
+---------------------------------------------------------------------------
+-- History of improvements (v0.18.0). A record is written to the log only
+-- when its period is over (the day of a "best day" has ended, a streak is
+-- not running today), so a record growing during the day is one entry,
+-- not one per step. The first entry of each record is the baseline found
+-- in the existing history and is not shown as an improvement.
+--   character.recordLog = { [id] = { { value, day, at, prev, base }, ... } }
+---------------------------------------------------------------------------
+Records.MAX_LOG = 20
+
+local function log(character)
+    if type(character.recordLog) ~= "table" then
+        character.recordLog = {}
+    end
+    return character.recordLog
+end
+
+-- Writes finished improvements of the logged-in character; returns the
+-- number of new entries (baselines included).
+function Records.Finalize()
+    local character = ns.character
+    if not character or character ~= ns.db.characters[ns.characterKey] or ns.readOnly then
+        return 0
+    end
+    local today = ns.Util.DayKey(ns.API.Time())
+    local records, book, added = Records.Get(), log(character), 0
+    for _, id in ipairs(Records.ORDER) do
+        local r = records[id]
+        local endDay = r and (r.last or r.day)
+        if r and r.value and endDay and endDay < today then
+            local entries = book[id]
+            if type(entries) ~= "table" then
+                entries = {}
+                book[id] = entries
+            end
+            local last = entries[#entries]
+            if not last then
+                entries[1] = { value = r.value, day = r.day, last = r.last, base = true }
+                added = added + 1
+            elseif type(last.value) == "number" and r.value > last.value then
+                entries[#entries + 1] = { value = r.value, day = r.day, last = r.last,
+                                          prev = last.value, at = ns.API.Time() }
+                added = added + 1
+                while #entries > Records.MAX_LOG do
+                    table.remove(entries, 2) -- the baseline stays first
+                end
+            end
+        end
+    end
+    return added
+end
+
+-- Improvements of the current (or viewed) character, newest first:
+-- { { id, value, prev, day, last }, ... } (baselines are left out).
+function Records.Improvements()
+    local character = ns.character
+    local book = character and type(character.recordLog) == "table" and character.recordLog or {}
+    local list = {}
+    for _, id in ipairs(Records.ORDER) do
+        for _, e in ipairs(type(book[id]) == "table" and book[id] or {}) do
+            if not e.base and type(e.value) == "number" then
+                list[#list + 1] = { id = id, value = e.value, prev = e.prev, day = e.day, last = e.last }
+            end
+        end
+    end
+    table.sort(list, function(a, b) return (a.day or "") > (b.day or "") end)
+    return list
+end
+
+-- The previous value of a record, when its last improvement is logged.
+function Records.Previous(id)
+    local character = ns.character
+    local entries = character and type(character.recordLog) == "table" and character.recordLog[id]
+    local last = type(entries) == "table" and entries[#entries]
+    return last and not last.base and last.prev or nil
+end
+
+local lastFinalized
+table.insert(ns.onLogin, function()
+    lastFinalized = ns.Util.DayKey(ns.API.Time())
+    Records.Finalize()
+end)
+-- A new day while playing: yesterday's records are final now.
+table.insert(ns.Activity.listeners, function()
+    local today = ns.Util.DayKey(ns.API.Time())
+    if lastFinalized and today ~= lastFinalized then
+        lastFinalized = today
+        Records.Invalidate()
+        Records.Finalize()
+    end
+end)

@@ -66,7 +66,7 @@ function Locations.Visit()
     local log = days()
     log[today] = log[today] or {}
     local entry = log[today][key] or {}
-    entry.name = API.ZoneName() or entry.name or key
+    entry.name = API.ZoneName() or entry.name or Locations.KeyName(key)
     entry.t = entry.t or now -- one record per zone and day: first arrival
     entry.first = entry.first or (isNew or nil)
     log[today][key] = entry
@@ -104,6 +104,28 @@ function Locations.Total()
         count = count + 1
     end
     return count
+end
+
+-- Name to show for a visit (v1.0.1): a raw key such as "map:1415" (the
+-- zone had no name yet when it was recorded) becomes the map's own name,
+-- or "Unknown place". The saved record is not changed.
+-- Best name for a key at the moment of the visit (map name, then the key).
+function Locations.KeyName(key)
+    local mapID = type(key) == "string" and tonumber(string.match(key, "^map:(%d+)$"))
+    return mapID and API.MapName(mapID) or key
+end
+
+function Locations.DisplayName(entry, key)
+    local name = entry and entry.name or key
+    if type(name) ~= "string" or name == "" then
+        return ns.L.UNKNOWN_PLACE
+    end
+    local mapID = tonumber(string.match(name, "^map:(%d+)$"))
+    if mapID then
+        return API.MapName(mapID) or ns.L.UNKNOWN_PLACE
+    end
+    local zone = string.match(name, "^zone:(.+)$")
+    return ns.ZoneText(zone or name)
 end
 
 -- Flat list for the history view, newest first:

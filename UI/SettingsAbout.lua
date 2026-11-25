@@ -1,10 +1,10 @@
 -- UI/SettingsAbout.lua
 -- Settings / About and Settings / Changelog (v0.10.0). Both are one
 -- scrolling list (W.FlexList) of rows of different kinds.
---   About:     logo, name, slogan, version, description, project facts,
---              community links (only confirmed ones, copied from a text
---              box), and a collapsible technical block with "Copy
---              diagnostics".
+--   About:     logo, name, slogan, version, description, author and
+--              copyright, community links (only confirmed ones, copied
+--              from a text box). v1.0.0-beta.4: no technical block; the
+--              diagnostics are in chat (/fm debug, /fm diag).
 --   Changelog: one collapsible card per version from CHANGELOG.md
 --              (Modules/ChangelogData.lua); the newest is open.
 local _, ns = ...
@@ -13,10 +13,13 @@ local L = ns.L
 local W = ns.Widgets
 local UI = ns.UI
 
-local WIDTH = UI.CONTENT_WIDTH
+local WIDTH = UI.SETTINGS_WIDTH
 local INNER = WIDTH - 8
-local PAGE_HEIGHT = 570 - UI.SETTINGS_PAGE_TOP
-local LOGO = "Interface\\Icons\\INV_Misc_Spyglass_03"
+local function measureWidth() -- the width follows the window and the side menu
+    WIDTH = UI.SETTINGS_WIDTH
+    INNER = WIDTH - 8
+end
+local LOGO = ns.Media.COMPASS
 
 local function setColor(fs, c)
     fs:SetTextColor(c[1], c[2], c[3])
@@ -57,6 +60,7 @@ local paragraph = {
         row.text:SetPoint("TOPLEFT", item.indent or 0, -2)
         row.text:SetPoint("BOTTOMRIGHT", -8, 0)
         row.text:SetText(item.text)
+        row.text:SetJustifyH(item.center and "CENTER" or "LEFT")
         setColor(row.text, item.color or W.COLORS.text)
     end,
 }
@@ -99,7 +103,7 @@ local info = {
     end,
     fill = function(row, item)
         row.icon:SetShown(item.icon ~= nil)
-        if item.icon then row.icon:SetTexture(item.icon) end
+        if item.icon then row.icon:SetIcon(item.icon) end
         row.label:ClearAllPoints()
         row.label:SetPoint("LEFT", item.icon and 26 or 0, 0)
         row.label:SetPoint("RIGHT", row.value, "LEFT", -12, 0)
@@ -145,22 +149,6 @@ local toggle = {
     end,
 }
 
-local button = {
-    height = 40,
-    make = function(parent)
-        local row = CreateFrame("Frame", nil, parent)
-        row.button = W.Button(row, "", INNER, 28, function()
-            if row.onClick then row.onClick() end
-        end)
-        row.button:SetPoint("TOPLEFT", 0, -6)
-        return row
-    end,
-    fill = function(row, item)
-        row.button:SetLabel(item.text)
-        row.onClick = item.onClick
-    end,
-}
-
 local spacer = {
     height = 10,
     make = function(parent) return CreateFrame("Frame", nil, parent) end,
@@ -171,14 +159,17 @@ local spacer = {
 -- About
 ---------------------------------------------------------------------------
 local logoKind = {
-    height = 150,
+    height = 196,
     make = function(parent)
         local row = CreateFrame("Frame", nil, parent)
-        local box = W.IconBox(row, LOGO, 56)
-        box:SetPoint("TOP", 0, -4)
-        local name = W.Text(row, "ForeverMemories", "GameFontNormalHuge", W.COLORS.heading)
-        name:SetPoint("TOP", box, "BOTTOM", 0, -10)
-        name:SetJustifyH("CENTER")
+        -- Full logo (v0.15.0): only here, never in the header.
+        local logo = row:CreateTexture(nil, "ARTWORK")
+        logo:SetSize(288, 144)
+        logo:SetTexture(ns.Media.LOGO)
+        logo:SetPoint("TOP", 0, 0)
+        local name = W.Text(row, "", "GameFontNormalHuge", W.COLORS.heading)
+        name:SetPoint("TOP", logo, "BOTTOM", 0, 0)
+        name:SetHeight(1)
         local slogan = W.Text(row, L.SLOGAN, "GameFontHighlight", W.COLORS.muted)
         slogan:SetPoint("TOP", name, "BOTTOM", 0, -6)
         slogan:SetJustifyH("CENTER")
@@ -188,7 +179,27 @@ local logoKind = {
         return row
     end,
     fill = function(row)
-        row.version:SetText(string.format(L.VERSION_LABEL, ns.version))
+        row.version:SetText(string.format(L.VERSION_LABEL, ns.version) .. "  ·  " .. ns.ProjectInfo.game)
+    end,
+}
+
+-- "DESIGNED & DEVELOPED BY", the name and the copyright, centered.
+local credit = {
+    height = 78,
+    make = function(parent)
+        local row = CreateFrame("Frame", nil, parent)
+        row.caption = W.Text(row, "", "GameFontHighlightSmall", W.COLORS.gold)
+        row.caption:SetPoint("TOP", 0, -10)
+        row.name = W.Text(row, "", "GameFontNormalLarge", W.COLORS.heading)
+        row.name:SetPoint("TOP", row.caption, "BOTTOM", 0, -6)
+        row.copyright = W.Text(row, "", "GameFontHighlightSmall", W.COLORS.muted)
+        row.copyright:SetPoint("TOP", row.name, "BOTTOM", 0, -8)
+        return row
+    end,
+    fill = function(row, item)
+        row.caption:SetText(item.caption)
+        row.name:SetText(item.name)
+        row.copyright:SetText(item.copyright or "")
     end,
 }
 
@@ -197,55 +208,42 @@ local function copyLink(label, url)
 end
 
 UI.settingsPages.about = function(parent)
-    local list = W.FlexList(parent, WIDTH, PAGE_HEIGHT, {
+    measureWidth()
+    local list = W.FlexList(parent, WIDTH, UI.SettingsPageHeight("about"), {
         logo = logoKind, paragraph = paragraph, heading = heading, info = info,
-        toggle = toggle, button = button, spacer = spacer,
+        credit = credit, spacer = spacer,
     })
+    W.Stretch(list)
     list:SetPoint("TOPLEFT", 0, 0)
-    local techOpen = false
     local refresh
 
     local function build()
         local p = ns.ProjectInfo
         local items = { { kind = "logo" } }
-        items[#items + 1] = { kind = "paragraph", text = L.ABOUT_DESCRIPTION, color = W.COLORS.text,
+        items[#items + 1] = { kind = "paragraph", text = L.ABOUT_DESCRIPTION, color = W.COLORS.text, center = true,
             height = textHeight(L.ABOUT_DESCRIPTION, INNER - 8) + 12 }
-        items[#items + 1] = { kind = "spacer" }
-        items[#items + 1] = { kind = "info", label = L.ABOUT_VERSION, value = ns.version }
-        if p.author then items[#items + 1] = { kind = "info", label = L.ABOUT_AUTHOR, value = p.author } end
+        if p.author then
+            items[#items + 1] = { kind = "credit", caption = L.DESIGNED_BY, name = p.author,
+                copyright = p.copyright }
+        end
         if p.license then items[#items + 1] = { kind = "info", label = L.ABOUT_LICENSE, value = p.license } end
-        items[#items + 1] = { kind = "info", label = L.ABOUT_GAME, value = p.game }
-        items[#items + 1] = { kind = "info", label = L.ABOUT_LANGUAGES, value = p.languages }
-        items[#items + 1] = { kind = "info", label = L.ABOUT_STORAGE, value = L.ABOUT_STORAGE_LOCAL }
         if p.thanks then items[#items + 1] = { kind = "info", label = L.ABOUT_THANKS, value = p.thanks } end
-
-        items[#items + 1] = { kind = "spacer" }
-        items[#items + 1] = { kind = "heading", text = L.COMMUNITY }
-        local links = 0
+        -- Only confirmed links; nothing at all while there are none.
+        local links = {}
         for _, link in ipairs(p.links) do
             if type(link.url) == "string" and link.url ~= "" then
-                links = links + 1
                 local label = L["LINK_" .. link.id]
-                items[#items + 1] = { kind = "info", label = label, value = L.COPY_LINK,
-                    icon = "Interface\\Icons\\INV_Misc_Note_01",
+                links[#links + 1] = { kind = "info", label = label, value = L.COPY_LINK,
+                    icon = ns.Media.ICON.calendar,
                     onClick = function() copyLink(label, link.url) end }
             end
         end
-        if links == 0 then
-            items[#items + 1] = { kind = "paragraph", text = L.NO_LINKS_YET, color = W.COLORS.muted,
-                height = textHeight(L.NO_LINKS_YET, INNER - 8) + 10 }
-        end
-
-        items[#items + 1] = { kind = "spacer" }
-        items[#items + 1] = { kind = "toggle", title = L.TECH_INFO, open = techOpen,
-            onClick = function() techOpen = not techOpen; refresh(true) end }
-        if techOpen then
-            for _, row in ipairs(ns.DataTools.DiagnosticsRows()) do
-                items[#items + 1] = { kind = "info", label = row[1], value = row[2] }
+        if #links > 0 then
+            items[#items + 1] = { kind = "spacer" }
+            items[#items + 1] = { kind = "heading", text = L.COMMUNITY }
+            for _, row in ipairs(links) do
+                items[#items + 1] = row
             end
-            items[#items + 1] = { kind = "button", text = L.COPY_DIAGNOSTICS, onClick = function()
-                UI.ShowCopyText(L.COPY_DIAGNOSTICS, ns.DataTools.DiagnosticsText(), L.DIAGNOSTICS_HINT)
-            end }
         end
         return items
     end
@@ -281,20 +279,31 @@ local function releaseDate(day)
     return ns.History.DateText(day)
 end
 
+function UI.ChangelogList()
+    if ns.activeLocaleCode ~= "ruRU" and ns.CHANGELOG_EN and ns.CHANGELOG_EN[1] then
+        return ns.CHANGELOG_EN
+    end
+    return ns.CHANGELOG or {}
+end
+
 UI.settingsPages.changelog = function(parent)
-    local list = W.FlexList(parent, WIDTH, PAGE_HEIGHT, {
+    measureWidth()
+    local list = W.FlexList(parent, WIDTH, UI.SettingsPageHeight("changelog"), {
         toggle = toggle, section = section, paragraph = paragraph, spacer = spacer, heading = heading,
     })
+    W.Stretch(list)
     list:SetPoint("TOPLEFT", 0, 0)
+    -- v0.17.0: the history in the language of the game (Russian or English).
+    local history = UI.ChangelogList()
     local open = {}
-    if ns.CHANGELOG and ns.CHANGELOG[1] then
-        open[ns.CHANGELOG[1].version] = true -- the newest is open
+    if history[1] then
+        open[history[1].version] = true -- the newest is open
     end
     local refresh
 
     local function build()
-        local items = { { kind = "heading", text = L.CHANGELOG_HEADING, height = 30 } }
-        for _, v in ipairs(ns.CHANGELOG or {}) do
+        local items = {} -- the page header names the page (v1.0.0-beta.4)
+        for _, v in ipairs(history) do
             local subtitle = v.title
             local dateText = releaseDate(v.date)
             if dateText then

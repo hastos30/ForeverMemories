@@ -23,16 +23,16 @@ Registry.TRIGGERS = {
     LOOT_RARE = { delay = 0.5, priority = 3, icon = "Interface\\Icons\\INV_Misc_Gem_Sapphire_02", quality = 3 },
     LOOT_EPIC = { delay = 0.5, priority = 2, icon = "Interface\\Icons\\INV_Misc_Gem_Amethyst_02", quality = 4 },
     LOOT_LEGENDARY = { delay = 0.5, priority = 1, icon = "Interface\\Icons\\INV_Misc_Gem_Topaz_02", quality = 5 },
-    ZONE = { delay = 2, priority = 3, icon = "Interface\\Icons\\INV_Misc_Map_01" },
+    ZONE = { delay = 2, priority = 3, icon = "Interface\\AddOns\\ForeverMemories\\Media\\Notifications\\event_location.tga" },
     GUILD = { delay = 1, priority = 3, icon = "Interface\\Icons\\INV_Shirt_GuildTabard_01" },
-    MANUAL = { delay = 0, priority = 0, icon = "Interface\\Icons\\INV_Misc_Spyglass_03" },
+    MANUAL = { delay = 0, priority = 0, icon = "Interface\\AddOns\\ForeverMemories\\Media\\Icons\\auto_capture.tga" },
     -- Passive capture (v0.6.0): a timer, not a game event. Its own switch
     -- (settings.passive), lowest priority, not in the EVENTS list.
-    PASSIVE = { delay = 1, priority = 4, icon = "Interface\\Icons\\INV_Misc_PocketWatch_01", passive = true },
+    PASSIVE = { delay = 1, priority = 4, icon = "Interface\\AddOns\\ForeverMemories\\Media\\Icons\\playtime.tga", passive = true },
 }
 
 -- Icon for records of event types from older versions (kept in history).
-Registry.LEGACY_ICON = "Interface\\Icons\\INV_Misc_Note_01"
+Registry.LEGACY_ICON = "Interface\\AddOns\\ForeverMemories\\Media\\Icons\\screenshots.tga"
 
 function Registry.Icon(id)
     local trigger = Registry.TRIGGERS[id]
