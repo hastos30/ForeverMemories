@@ -2371,5 +2371,180 @@ test("beta.16-17 history: /played of another character and in All characters", f
     noErrors(ns)
 end)
 
+---------------------------------------------------------------------------
+-- v1.0.0-beta.18: achievement chains and the dashboard
+---------------------------------------------------------------------------
+local function shownText(env, part)
+    for _, text in ipairs(texts(env)) do
+        if text:find(part, 1, true) then return true end
+    end
+    return false
+end
+
+-- The shown card row whose title starts with `title`.
+local function cardRow(env, title)
+    for _, frame in ipairs(env.frames) do
+        if frame.kind == "Button" and rawget(frame, "dots") and frame:IsShown()
+            and frame.title.text:sub(1, #title) == title then
+            return frame
+        end
+    end
+end
+
+test("beta.18 catalog: chains are ladders in catalog order", function()
+    local env, ns = start()
+    local A = ns.Achievements
+    local chains, steps = 0, 0
+    for id, list in pairs(A.CHAINS) do
+        chains = chains + 1
+        steps = steps + #list
+        eq(#list >= 2, true, id .. ": at least two steps")
+        for i = 2, #list do
+            eq(list[i].scope, list[1].scope, id .. ": one scope")
+            eq(list[i].category, list[1].category, id .. ": one category")
+            if list[i].metric == list[i - 1].metric then
+                eq(list[i].target > list[i - 1].target, true, id .. ": growing target")
+            end
+        end
+        -- The steps follow each other in the catalog.
+        local first
+        for i, def in ipairs(A.CATALOG.list) do
+            if def == list[1] then first = i end
+        end
+        for i, def in ipairs(list) do
+            eq(A.CATALOG.list[first + i - 1], def, id .. ": steps side by side")
+        end
+    end
+    eq(chains, 24, "24 chains") eq(steps, 76, "76 steps in chains")
+    eq(#A.Steps(A.BY_ID["fm.memories.manual"]), 1, "a lone achievement is its own chain")
+    local cards = A.Cards(A.Get("character"))
+    local accountCards = A.Cards(A.Get("account"))
+    eq(#cards + #accountCards, 54, "54 cards instead of 106 rows")
+    noErrors(ns)
+end)
+
+test("beta.18 cards: current step, earned steps, complete chain", function()
+    local env, ns = start()
+    local A = ns.Achievements
+    local function card(key)
+        for _, c in ipairs(A.Cards(A.Get("character"))) do
+            if c.key == key then return c end
+        end
+    end
+    local shots = card("memories.shots")
+    eq(#shots.steps, 5, "five steps") eq(shots.earned, 0, "nothing yet")
+    eq(shots.current.def.id, "fm.memories.first", "first step is the goal") eq(shots.last, nil, "none earned")
+    ns.character.shotsTotal = 150
+    A.Check()
+    shots = card("memories.shots")
+    eq(shots.earned, 2, "two steps") eq(shots.current.def.id, "fm.memories.keeper", "goal moved on")
+    eq(shots.last.def.id, "fm.memories.photographer", "highest earned")
+    eq(shots.complete, false, "not complete")
+    ns.character.shotsTotal = 5000
+    A.Check()
+    shots = card("memories.shots")
+    eq(shots.complete, true, "every step") eq(shots.current.def.id, "fm.memories.archive", "last step shown")
+    -- Steps unlock one by one even when the counter jumps.
+    for _, step in ipairs(shots.steps) do
+        eq(ns.character.achievements.unlocked[step.def.id] ~= nil, true, step.def.id .. " stored")
+    end
+    local d = A.Breakdown(A.Get("character"))
+    eq(d.total, 100, "dashboard counts steps") eq(d.categories.memories.done >= 5, true, "category count")
+    eq(d.rarities.legendary.done >= 1, true, "rarity count")
+    noErrors(ns)
+end)
+
+test("beta.18 pins move to the next step; one goal per chain on Home", function()
+    local env, ns = start()
+    local A = ns.Achievements
+    A.Check()
+    eq(A.TogglePin("fm.memories.first"), true, "pinned")
+    ns.character.shotsTotal = 1
+    A.Check()
+    eq(A.IsPinned("fm.memories.first"), false, "earned step unpinned")
+    eq(A.IsPinned("fm.memories.photographer"), true, "pin moved to the next step")
+    -- Two steps of one chain are never two goals.
+    ns.db.ui.pins = {}
+    ns.character.shotsTotal = 99
+    local chains = {}
+    for _, g in ipairs(A.Goals(3)) do
+        local key = g.achievement.def.chain or g.achievement.def.id
+        eq(chains[key], nil, "one goal per chain: " .. key)
+        chains[key] = true
+    end
+    noErrors(ns)
+end)
+
+test("beta.18 achievements view: one card per chain, unfold, dashboard, Russian too", function()
+    for _, locale in ipairs({ "enUS", "ruRU" }) do
+        local env, ns = start({ locale = locale })
+        local A, L = ns.Achievements, ns.L
+        ns.character.shotsTotal = 1
+        A.Check()
+        ns.UI.Toggle("history", "achievements")
+        local function title(id) return A.Text(A.BY_ID[id], "title") end
+        eq(shownText(env, L.ACH_DASH_TITLE), true, "dashboard")
+        eq(shownText(env, L.ACH_RARITIES_COMMON), true, "rarities on the dashboard")
+        local row = cardRow(env, title("fm.memories.photographer"))
+        eq(row ~= nil, true, "the card shows the current step")
+        eq(cardRow(env, title("fm.memories.first")), nil, "the earned step is not a card of its own")
+        eq(shownText(env, string.format(L.ACH_STEP, 3, 5)), false, "folded")
+        row:Click()
+        eq(shownText(env, title("fm.memories.keeper")), true, "unfolded: later steps")
+        eq(shownText(env, L.ACH_STEP_NOW), true, "the current goal is marked")
+        local function stepRows()
+            local n = 0
+            for _, frame in ipairs(env.frames) do
+                if rawget(frame, "tint") and frame:IsShown() then n = n + 1 end
+            end
+            return n
+        end
+        eq(stepRows() >= 3, true, "step rows shown")
+        cardRow(env, title("fm.memories.photographer")):Click()
+        eq(stepRows(), 0, "folded again")
+        -- Completed: the highest earned step.
+        findButton(env, L.ACH_DONE):Click()
+        eq(cardRow(env, title("fm.memories.first")) ~= nil, true, "completed shows the earned step")
+        eq(cardRow(env, title("fm.memories.photographer")), nil, "not the goal")
+        findButton(env, L.ACH_ALL):Click()
+        noErrors(ns)
+    end
+end)
+
+test("beta.18 dashboard: a category scrolls to its list", function()
+    local env, ns = start()
+    ns.UI.Toggle("history", "achievements")
+    local cell
+    for _, frame in ipairs(env.frames) do
+        if frame.kind == "Button" and rawget(frame, "category") == "special" and frame:IsShown() then
+            cell = frame
+        end
+    end
+    eq(cell ~= nil, true, "category cell")
+    cell:Click()
+    local scrolled = false
+    for _, frame in ipairs(env.frames) do
+        if type(rawget(frame, "items")) == "function" and frame:IsShown() and frame:Offset() > 0 then
+            scrolled = true
+        end
+    end
+    eq(scrolled, true, "list scrolled")
+    noErrors(ns)
+end)
+
+test("beta.18 chat names the next step of a chain", function()
+    local env, ns = start()
+    ns.Achievements.Check()
+    ns.Engine.ManualShot()
+    env.advance(3)
+    ns.Achievements.Check()
+    local found = false
+    for _, line in ipairs(env.chat) do
+        if line:find("Next: Photographer (100)", 1, true) then found = true end
+    end
+    eq(found, true, "next step in chat")
+    noErrors(ns)
+end)
+
 print(string.format("\n%d passed, %d failed", passed, failed))
 os.exit(failed == 0 and 0 or 1)

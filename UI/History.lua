@@ -101,6 +101,13 @@ COMMON.heading = {
     end,
 }
 
+-- Empty space (v1.0.0-beta.18), height set by the item.
+COMMON.spacer = {
+    height = 10,
+    make = function(parent) return CreateFrame("Frame", nil, parent) end,
+    fill = function() end,
+}
+
 -- Day group header: "24 November · Today" ... "8 locations".
 COMMON.day = {
     height = 32,
@@ -700,6 +707,10 @@ local function progressBar(parent, height)
     function track:SetProgress(fraction, width)
         fill:SetWidth(math.max(1, width * fraction))
         fill:SetShown(fraction > 0)
+    end
+    -- v1.0.0-beta.18: own fill color (rarity bars of the dashboard).
+    function track:SetFillColor(c)
+        fill:SetColorTexture(c[1], c[2], c[3], 1)
     end
     return track
 end
@@ -1606,9 +1617,17 @@ end
 -- 10 categories plus 6 account "Legacy" ones. Filters: status and scope.
 -- Rarity is shown by color; secret achievements show only their hint until
 -- earned; an achievement Forever cannot track says why.
+--
+-- v1.0.0-beta.18: one card per chain (Achievements.Cards). A card shows the
+-- current step (the first one not earned) with dots for the steps; a click
+-- unfolds every step with its target, progress and date. "Completed" shows
+-- the highest earned step of each chain. A dashboard on top counts earned
+-- steps by category and by rarity; a category there scrolls to its list.
 ---------------------------------------------------------------------------
 local ACH_FILTERS = { { "all", "ACH_ALL" }, { "done", "ACH_DONE" }, { "progress", "ACH_IN_PROGRESS" } }
 local ACH_SCOPES = { { "character", "ACH_SCOPE_CHARACTER" }, { "account", "ACH_SCOPE_ACCOUNT" } }
+local MAX_DOTS = 8         -- longest chain in the catalog: 6 steps
+local DASH_CELLS = 12      -- categories on the dashboard (10 today)
 
 local function rarityColor(rarity)
     local c = ns.Achievements.RARITY_COLORS[rarity] or ns.Achievements.RARITY_COLORS.common
@@ -1629,19 +1648,74 @@ local function achievementStatus(a)
     return L.ACH_IN_PROGRESS, W.COLORS.muted
 end
 
-local function wantedBy(filter, a)
+-- Shown value and target: never "less than done", never over 100 %.
+local function achievementCount(a)
+    local value, target = a.value, a.target
+    if a.done and target and (not value or value > target) then
+        value = target
+    end
+    if value and target then
+        return math.min(value, target), target
+    end
+    return nil, target
+end
+
+local function share(a)
+    local value, target = achievementCount(a)
+    return value and target and target > 0 and value / target or -1
+end
+
+local function wantedBy(filter, card)
     if filter == "done" then
-        return a.done
+        return card.earned > 0
     elseif filter == "progress" then
-        return not a.done and a.state ~= "unavailable"
+        return not card.complete and card.current.state ~= "unavailable"
     end
     return true
 end
 
+-- The step a card shows: the highest earned one in "Completed", the
+-- current goal otherwise.
+local function shownStep(filter, card)
+    if filter == "done" then
+        return card.last or card.current
+    end
+    return card.current
+end
+
+local function percent(done, total)
+    return total > 0 and math.floor(done / total * 100 + 0.5) or 0
+end
+
 local function buildAchievements(parent)
     local view
-    local state = { filter = "all", scope = "character" }
+    local state = { filter = "all", scope = "character", expanded = {} }
     local BAR = INNER - 190
+
+    -- Dashboard cell: category name, "3 / 10" and a bar; a click scrolls.
+    local function dashCell(box)
+        local cell = CreateFrame("Button", nil, box)
+        cell:RegisterForClicks("LeftButtonUp")
+        local g = W.COLORS.gold
+        local highlight = cell:CreateTexture(nil, "HIGHLIGHT")
+        highlight:SetAllPoints()
+        highlight:SetColorTexture(g[1], g[2], g[3], 0.06)
+        cell.name = W.Text(cell, "", "GameFontHighlightSmall", W.COLORS.text)
+        cell.name:SetPoint("TOPLEFT", 4, -3)
+        cell.count = W.Text(cell, "", "GameFontHighlightSmall", W.COLORS.muted)
+        cell.count:SetPoint("TOPRIGHT", -4, -3)
+        cell.count:SetJustifyH("RIGHT")
+        cell.bar = progressBar(cell, 3)
+        cell.bar:SetPoint("BOTTOMLEFT", 4, 4)
+        cell:SetScript("OnClick", function(self)
+            if self.category then
+                view.list:ScrollTo(function(item) return item.anchor == self.category end)
+            end
+        end)
+        W.Tooltip(cell, function() return L.TIP_ACH_DASH_CATEGORY end, function() return cell.name:GetText() end)
+        return cell
+    end
+
     view = newView(parent, {
         achFilter = {
             height = 40,
@@ -1685,14 +1759,110 @@ local function buildAchievements(parent)
                 row.switch:SetValue(state.scope)
             end,
         },
+        -- Dashboard (v1.0.0-beta.18): total, rarities, categories.
+        achDash = {
+            height = 120,
+            make = function(p)
+                local box = W.Panel(p, W.COLORS.panel, W.COLORS.divider)
+                box.title = W.Text(box, L.ACH_DASH_TITLE, "GameFontNormal", W.COLORS.heading)
+                box.title:SetPoint("TOPLEFT", 12, -10)
+                box.total = W.Text(box, "", "GameFontHighlight", W.COLORS.text)
+                box.total:SetPoint("TOPRIGHT", -12, -10)
+                box.total:SetJustifyH("RIGHT")
+                box.bar = progressBar(box, 6)
+                box.bar:SetPoint("TOPLEFT", 12, -34)
+                box.rarities = {}
+                for i, rarity in ipairs(ns.Achievements.RARITIES) do
+                    local r = {}
+                    r.label = W.Text(box, "", "GameFontHighlightSmall", rarityColor(rarity))
+                    r.bar = progressBar(box, 3)
+                    r.bar:SetFillColor(rarityColor(rarity))
+                    box.rarities[i] = r
+                end
+                box.caption = W.Text(box, L.ACH_DASH_BY_CATEGORY, "GameFontHighlightSmall", W.COLORS.muted)
+                box.cells = {}
+                for i = 1, DASH_CELLS do
+                    box.cells[i] = dashCell(box)
+                end
+                return box
+            end,
+            fill = function(box, item)
+                local d = item.breakdown
+                local width = INNER - 24
+                box.total:SetText(string.format("%d / %d  ·  %d%%", d.done, d.total, percent(d.done, d.total)))
+                box.bar:SetWidth(width)
+                box.bar:SetProgress(d.total > 0 and d.done / d.total or 0, width)
+                -- Rarities: four columns under the total.
+                local column = math.floor(width / #box.rarities)
+                for i, rarity in ipairs(ns.Achievements.RARITIES) do
+                    local r, entry = box.rarities[i], d.rarities[rarity] or { done = 0, total = 0 }
+                    local x = 12 + (i - 1) * column
+                    r.label:ClearAllPoints()
+                    r.label:SetPoint("TOPLEFT", box, "TOPLEFT", x, -50)
+                    r.label:SetText(L["ACH_RARITIES_" .. string.upper(rarity)] .. "  " .. entry.done .. " / " .. entry.total)
+                    r.bar:ClearAllPoints()
+                    r.bar:SetPoint("TOPLEFT", box, "TOPLEFT", x, -68)
+                    r.bar:SetWidth(column - 16)
+                    r.bar:SetProgress(entry.total > 0 and entry.done / entry.total or 0, column - 16)
+                end
+                -- Categories: a grid of three columns (two or one in a narrow window).
+                local cats = item.categories
+                box.caption:SetShown(#cats > 1)
+                box.caption:ClearAllPoints()
+                box.caption:SetPoint("TOPLEFT", 12, -82)
+                local cols = item.columns
+                local cellW = math.floor((width + 12) / cols) - 12
+                for i, cell in ipairs(box.cells) do
+                    local category = #cats > 1 and cats[i] or nil
+                    cell:SetShown(category ~= nil)
+                    if category then
+                        local entry = d.categories[category] or { done = 0, total = 0 }
+                        local col, line = (i - 1) % cols, math.floor((i - 1) / cols)
+                        cell:ClearAllPoints()
+                        cell:SetSize(cellW, 25)
+                        cell:SetPoint("TOPLEFT", box, "TOPLEFT", 12 + col * (cellW + 12), -100 - line * 28)
+                        cell.category = category
+                        cell.name:SetText(L["ACH_CAT_" .. string.upper(category)])
+                        cell.count:SetText(entry.done .. " / " .. entry.total)
+                        cell.bar:SetWidth(cellW - 8)
+                        cell.bar:SetProgress(entry.total > 0 and entry.done / entry.total or 0, cellW - 8)
+                    end
+                end
+            end,
+        },
         achievement = {
             height = 66,
             make = function(p)
-                local row = CreateFrame("Frame", nil, p)
+                local row = CreateFrame("Button", nil, p)
+                row:RegisterForClicks("LeftButtonUp")
+                local g = W.COLORS.gold
+                -- Hover, and a soft tint while the card is unfolded.
+                local highlight = row:CreateTexture(nil, "HIGHLIGHT")
+                highlight:SetAllPoints()
+                highlight:SetColorTexture(g[1], g[2], g[3], 0.05)
+                row.open = row:CreateTexture(nil, "BACKGROUND")
+                row.open:SetAllPoints()
+                row.open:SetColorTexture(g[1], g[2], g[3], 0.05)
+                row:SetScript("OnClick", function(self)
+                    if self.key and self.chain then
+                        state.expanded[self.key] = not state.expanded[self.key] or nil
+                        view:Refresh(nil, true)
+                    end
+                end)
+                W.Tooltip(row, function() return row.chain and L.TIP_ACH_CHAIN or nil end,
+                    function() return row.chain and row.stepText or nil end)
                 row.icon = W.Medallion(row, 56) -- v1.0.0-beta.8: 56 px (was 46)
                 row.icon:SetPoint("LEFT", -6, 0)
                 row.title = W.Text(row, "", "GameFontHighlight", W.COLORS.text)
                 row.title:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 12, 2)
+                -- Steps of the chain: one dot each, earned ones in gold.
+                row.dots = {}
+                for i = 1, MAX_DOTS do
+                    local dot = row:CreateTexture(nil, "ARTWORK")
+                    dot:SetSize(7, 7)
+                    dot:SetPoint("LEFT", row.title, "RIGHT", 10 + (i - 1) * 10, 0)
+                    row.dots[i] = dot
+                end
                 -- Pin to Home (v0.16.0): up to three achievements.
                 row.pin = W.Button(row, "", 22, 20, function(self)
                     if self.id and not viewedCharacter() then
@@ -1730,12 +1900,18 @@ local function buildAchievements(parent)
                 return row
             end,
             fill = function(row, item)
-                local a = item.achievement
+                local card, a = item.card, item.achievement
                 local def = a.def
                 local M = ns.Media
+                local steps = #card.steps
+                row.key, row.chain = card.key, steps > 1
+                row.open:SetShown(row.chain and state.expanded[card.key] == true)
+                -- A chain with earned steps keeps its color (frame of the last one).
+                local lit = a.done or card.earned > 0
+                local frameRarity = a.done and def.rarity or (card.last and card.last.def.rarity) or "common"
                 row.icon:Set(a.secret and "Interface\\Icons\\INV_Misc_QuestionMark"
                     or M.MEDALLIONS[def.medallion] or M.MEDALLIONS.special,
-                    M.FRAMES[a.done and def.rarity or "common"], a.done and 1 or 0.55, not a.done)
+                    M.FRAMES[lit and frameRarity or "common"], lit and 1 or 0.55, not lit)
                 local rarity = L["ACH_RARITY_" .. string.upper(def.rarity)]
                 if a.secret then
                     row.title:SetText(L.ACH_SECRET .. "  |cff8c8c8c" .. rarity .. "|r")
@@ -1749,6 +1925,22 @@ local function buildAchievements(parent)
                     row.desc:SetText(desc)
                 end
                 setColor(row.title, a.done and rarityColor(def.rarity) or W.COLORS.text)
+                -- Dots and "Step 2 of 5" (tooltip).
+                local index = 1
+                for i, step in ipairs(card.steps) do
+                    if step == a then index = i end
+                end
+                row.stepText = card.complete and string.format(L.ACH_STEPS_ALL, steps)
+                    or string.format(L.ACH_STEP, index, steps)
+                local g, d = W.COLORS.gold, W.COLORS.divider
+                for i, dot in ipairs(row.dots) do
+                    local step = row.chain and card.steps[i]
+                    dot:SetShown(step ~= nil and step ~= false)
+                    if step then
+                        local c = step.done and g or d
+                        dot:SetColorTexture(c[1], c[2], c[3], 1)
+                    end
+                end
                 local canPin = ns.Achievements.CanPin(a) and not viewedCharacter()
                 row.pin:SetShown(canPin)
                 row.pin.id = def.id
@@ -1758,15 +1950,11 @@ local function buildAchievements(parent)
                 local status, color = achievementStatus(a)
                 row.status:SetText(status)
                 setColor(row.status, color)
-                local value, target = a.value, a.target
-                if a.done and target and (not value or value > target) then
-                    value = target -- never "less than done", never over 100 %
-                end
+                local value, target = achievementCount(a)
                 if a.secret and not a.done then
                     row.count:SetText("?")
                     row.bar:SetProgress(0, BAR)
                 elseif value and target then
-                    value = math.min(value, target)
                     row.count:SetText(ns.Num(value) .. " / " .. ns.Num(target))
                     row.bar:SetProgress(value / target, BAR)
                 else
@@ -1775,35 +1963,108 @@ local function buildAchievements(parent)
                 end
             end,
         },
+        -- One step of an unfolded chain (v1.0.0-beta.18).
+        achStep = {
+            height = 26,
+            make = function(p)
+                local row = CreateFrame("Frame", nil, p)
+                local g = W.COLORS.gold
+                row.tint = row:CreateTexture(nil, "BACKGROUND")
+                row.tint:SetAllPoints()
+                row.tint:SetColorTexture(g[1], g[2], g[3], 0.05)
+                row.dot = row:CreateTexture(nil, "ARTWORK")
+                row.dot:SetSize(7, 7)
+                row.dot:SetPoint("LEFT", 62, 0)
+                row.title = W.Text(row, "", "GameFontHighlightSmall", W.COLORS.text)
+                row.title:SetPoint("LEFT", row.dot, "RIGHT", 10, 0)
+                row.count = W.Text(row, "", "GameFontHighlightSmall", W.COLORS.heading)
+                row.count:SetPoint("RIGHT", -8, 0)
+                row.count:SetJustifyH("RIGHT")
+                row.status = W.Text(row, "", "GameFontHighlightSmall", W.COLORS.muted)
+                row.status:SetPoint("RIGHT", row.count, "LEFT", -14, 0)
+                row.status:SetJustifyH("RIGHT")
+                W.Tooltip(row, function() return row.tip end, function() return row.name end)
+                return row
+            end,
+            fill = function(row, item)
+                local a, def = item.achievement, item.achievement.def
+                row.name = ns.Achievements.Text(def, "title")
+                row.tip = ns.Achievements.Text(def, "description")
+                local rarity = L["ACH_RARITY_" .. string.upper(def.rarity)]
+                row.title:SetText(string.format(L.ACH_STEP, item.index, item.steps) .. ":  " .. row.name
+                    .. "  |cff8c8c8c" .. rarity .. "|r")
+                local c = a.done and rarityColor(def.rarity) or (item.current and W.COLORS.text or W.COLORS.muted)
+                setColor(row.title, c)
+                local dc = a.done and W.COLORS.gold or (item.current and W.COLORS.text or W.COLORS.divider)
+                row.dot:SetColorTexture(dc[1], dc[2], dc[3], 1)
+                local status, color
+                if a.done then
+                    status, color = achievementStatus(a)
+                elseif item.current then
+                    status, color = L.ACH_STEP_NOW, W.COLORS.heading
+                else
+                    status, color = L.ACH_STEP_LATER, W.COLORS.muted
+                end
+                row.status:SetText(status)
+                setColor(row.status, color)
+                local value, target = achievementCount(a)
+                row.count:SetText(value and (ns.Num(value) .. " / " .. ns.Num(target)) or ns.Num(target))
+            end,
+        },
     })
     function view:Refresh(_, keep)
         local list = ns.Achievements.Get(state.scope)
         local done, total, availableDone, available = ns.Achievements.Summary(state.scope, list)
+        local categories = state.scope == "account" and { "account" } or ns.Achievements.CATEGORIES
+        local columns = INNER >= 700 and 3 or (INNER >= 460 and 2 or 1)
+        local dashHeight = 88 + (#categories > 1 and (18 + math.ceil(#categories / columns) * 28) or 0)
         local items = {
             { kind = "achScope" },
             { kind = "achFilter", summary = string.format(L.ACH_SUMMARY_FULL, done, total, availableDone, available) },
+            { kind = "achDash", breakdown = ns.Achievements.Breakdown(list), categories = categories,
+              columns = columns, height = dashHeight },
+            { kind = "spacer", height = 10 },
         }
-        local categories = state.scope == "account" and { "account" } or ns.Achievements.CATEGORIES
+        local shown = 0
+        local cards = ns.Achievements.Cards(list)
         for _, category in ipairs(categories) do
             local rows, total, earned = {}, 0, 0
-            for _, a in ipairs(list) do
-                if a.def.category == category then
-                    total = total + 1
-                    if a.done then earned = earned + 1 end
-                    if wantedBy(state.filter, a) then
-                        rows[#rows + 1] = { kind = "achievement", achievement = a }
+            for _, card in ipairs(cards) do
+                if card.category == category then
+                    total = total + #card.steps
+                    earned = earned + card.earned
+                    if wantedBy(state.filter, card) then
+                        rows[#rows + 1] = card
                     end
                 end
             end
+            -- "In progress": the nearest goals first (catalog order on a tie).
+            if state.filter == "progress" then
+                local order = {}
+                for i, card in ipairs(rows) do order[card] = i end
+                table.sort(rows, function(x, y)
+                    local sx, sy = share(x.current), share(y.current)
+                    if sx ~= sy then return sx > sy end
+                    return order[x] < order[y]
+                end)
+            end
             if #rows > 0 then
-                items[#items + 1] = { kind = "heading", text = L["ACH_CAT_" .. string.upper(category)],
-                    right = string.format("%d / %d", earned, total) }
-                for _, r in ipairs(rows) do
-                    items[#items + 1] = r
+                items[#items + 1] = { kind = "heading", anchor = category,
+                    text = L["ACH_CAT_" .. string.upper(category)], right = string.format("%d / %d", earned, total) }
+                for _, card in ipairs(rows) do
+                    shown = shown + 1
+                    items[#items + 1] = { kind = "achievement", card = card, achievement = shownStep(state.filter, card) }
+                    if #card.steps > 1 and state.expanded[card.key] then
+                        local currentIndex = not card.complete and card.current or nil
+                        for i, step in ipairs(card.steps) do
+                            items[#items + 1] = { kind = "achStep", achievement = step, index = i,
+                                steps = #card.steps, current = step == currentIndex }
+                        end
+                    end
                 end
             end
         end
-        if #items == 2 then
+        if shown == 0 then
             items[#items + 1] = { kind = "note", text = state.filter == "done" and L.ACH_NONE_DONE or L.ACH_ALL_DONE }
         end
         items[#items + 1] = { kind = "note", text = state.scope == "account" and L.ACH_NOTE_ACCOUNT or L.ACH_NOTE, height = 52 }

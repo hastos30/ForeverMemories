@@ -4,6 +4,24 @@ local _, ns = ...
 
 ns.CHANGELOG = {
     {
+        version = "1.0.0-beta.18",
+        date = "2026-11-25",
+        title = "Цепочки достижений и дашборд прогресса",
+        sections = {
+            { kind = "added", items = {
+                "Достижения: дашборд над списком — сколько получено всего, по редкости (обычные, редкие, эпические, легендарные) и по каждой категории. Нажатие на категорию прокручивает список к ней.",
+                "В чате после нового достижения из цепочки сразу видно следующую ступень: «Получено достижение: Фотограф. Дальше: Хранитель воспоминаний (500)».",
+            } },
+            { kind = "improved", items = {
+                "Достижения с одним и тем же условием и растущей целью собраны в цепочки: например, «Первое воспоминание → Фотограф → Хранитель воспоминаний → Мастер фотографии → Архивариус Азерота». Вместо 106 строк в списке 54 карточки.",
+                "Карточка цепочки показывает текущую цель (первую неполученную ступень) и точки ступеней: золотые — полученные. Нажатие на карточку разворачивает все ступени с целью, прогрессом и датой получения.",
+                "«Выполненные» показывают высшую полученную ступень каждой цепочки, «В процессе» — сначала то, что ближе всего к выполнению.",
+                "Закреплённая на Главной ступень после получения переходит на следующую ступень цепочки. В целях Главной одна цепочка больше не занимает два места.",
+                "Полученные достижения и счётчик «Получено X / Y» не меняются: каждая ступень по-прежнему считается отдельным достижением.",
+            } },
+        },
+    },
+    {
         version = "1.0.0-beta.17",
         date = "2026-11-25",
         title = "Всё игровое время на странице «Все персонажи»",
@@ -542,6 +560,24 @@ ns.CHANGELOG = {
     },
 }
 ns.CHANGELOG_EN = {
+    {
+        version = "1.0.0-beta.18",
+        date = "2026-11-25",
+        title = "Achievement chains and a progress dashboard",
+        sections = {
+            { kind = "added", items = {
+                "Achievements: a dashboard above the list shows how many are earned in total, by rarity (common, rare, epic, legendary) and in each category. Clicking a category scrolls the list to it.",
+                "After a new achievement of a chain, the chat names the next step: \"Achievement earned: Photographer. Next: Memory Keeper (500)\".",
+            } },
+            { kind = "improved", items = {
+                "Achievements with the same condition and a growing target are joined into chains, for example \"First Memory → Photographer → Memory Keeper → Master Photographer → Archivist of Azeroth\". The list has 54 cards instead of 106 rows.",
+                "A chain card shows the current goal (the first step not earned yet) and a dot for each step, earned ones in gold. Clicking the card unfolds every step with its target, progress and date.",
+                "\"Completed\" shows the highest earned step of each chain; \"In progress\" shows the nearest goals first.",
+                "A step pinned to Home moves to the next step of its chain once earned. One chain no longer takes two places among the goals on Home.",
+                "Earned achievements and the \"X / Y earned\" counter stay the same: every step still counts as an achievement of its own.",
+            } },
+        },
+    },
     {
         version = "1.0.0-beta.17",
         date = "2026-11-25",

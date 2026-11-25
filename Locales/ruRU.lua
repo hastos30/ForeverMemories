@@ -468,4 +468,12 @@ ns.locales.ruRU = {
     ACH_SUMMARY_FULL = "Получено %d / %d  ·  доступных %d / %d",
     HOME_WEEK = "Эта неделя", HOME_WEEK_DAYS = "дней в игре: %d", HOME_WEEK_NEW = "новых: %d",
     TIP_HOME_WEEK = "С понедельника по сегодня: снимки, шаги, локации и активная игра этого персонажа. Нажмите, чтобы открыть Историю / Обзор.",
+    -- v1.0.0-beta.18: цепочки достижений и дашборд.
+    ACH_NEXT_STEP = ". Дальше: %s (%s)",
+    ACH_STEP = "Ступень %d из %d", ACH_STEPS_ALL = "Все ступени: %d",
+    ACH_STEP_NOW = "Текущая цель", ACH_STEP_LATER = "Впереди",
+    TIP_ACH_CHAIN = "Нажмите, чтобы показать или скрыть все ступени этой цепочки.",
+    ACH_DASH_TITLE = "Прогресс достижений", ACH_DASH_BY_CATEGORY = "По категориям", ACH_DASH_BY_RARITY = "По редкости",
+    TIP_ACH_DASH_CATEGORY = "Нажмите, чтобы перейти к этой категории.",
+    ACH_RARITIES_COMMON = "Обычные", ACH_RARITIES_RARE = "Редкие", ACH_RARITIES_EPIC = "Эпические", ACH_RARITIES_LEGENDARY = "Легендарные",
 }

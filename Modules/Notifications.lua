@@ -693,8 +693,24 @@ function Notifications.OnZone(_, isNew)
 end
 
 -- Achievements earned right now (never the ones found already reached).
+-- v1.0.0-beta.18: the next step of a chain, unless it came in the same batch.
+local function nextStep(def, batch)
+    local steps = ns.Achievements.Steps(def)
+    for i, step in ipairs(steps) do
+        if step == def then
+            local after = steps[i + 1]
+            return after and not batch[after] and after or nil
+        end
+    end
+    return nil
+end
+
 function Notifications.OnAchievements(defs)
     local A, M = ns.Achievements, ns.Media
+    local batch = {}
+    for _, def in ipairs(defs or {}) do
+        batch[def] = true
+    end
     for _, def in ipairs(defs or {}) do
         local big = def.rarity == "epic" or def.rarity == "legendary"
         local title = A.Text(def, "title") or def.id
@@ -704,7 +720,9 @@ function Notifications.OnAchievements(defs)
             icon = M.MEDALLIONS[def.medallion] or M.MEDALLIONS.special,
         })
         if ns.db.settings.notifications then
-            ns.API.Print(L.NOTIFY_ACHIEVEMENT .. ": " .. title)
+            local after = nextStep(def, batch)
+            ns.API.Print(L.NOTIFY_ACHIEVEMENT .. ": " .. title .. (after
+                and string.format(L.ACH_NEXT_STEP, A.Text(after, "title") or after.id, ns.Num(after.target)) or ""))
         end
     end
 end

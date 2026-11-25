@@ -9,10 +9,10 @@ works in the game.
 ## 1. Offline (without the game)
 Needs `lua5.1`. Run from the addon root:
 
-| Command | What it checks | State (1.0.0-beta.17) |
+| Command | What it checks | State (1.0.0-beta.18) |
 |---|---|---|
 | `lua5.1 tests/smoke.lua` | The addon loads, every tab and every History/Settings page opens in both languages, every file listed in `UI/Media.lua` exists. | 54 / 54 PASS |
-| `lua5.1 tests/run.lua` | The full suite: migrations and schema 6, auto capture, steps, diary, achievements, settings, changelog. | 112 / 112 PASS |
+| `lua5.1 tests/run.lua` | The full suite: migrations and schema 6, auto capture, steps, diary, achievements, settings, changelog. | 118 / 118 PASS |
 
 `tests/mock_wow.lua` is the fake client (WoW functions and frames) both suites run on.
 Before a release both suites must pass in full.
@@ -39,6 +39,7 @@ Tick these while playing. If something is wrong, take a screenshot and run `/fm 
 - [ ] All eight sections open; picking a character and "All characters" work.
 - [ ] Steps: running 30 s in a straight line ≈ 210 yards ≈ 128 steps.
 - [ ] Everything is kept after `/reload` and relog; backup → import brings the data back.
+- [ ] Achievements: the dashboard (total, by rarity, by category), a category click scrolls; a chain card unfolds on click and shows every step; a pin moves to the next step.
 
 ## 3. Client API: what is known
 Viktor's client: Forever 1.60.1, build 71037, `GetBuildInfo()` → 16001 (matches the TOC), Linux (Wine).

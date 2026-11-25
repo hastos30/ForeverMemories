@@ -40,7 +40,7 @@ ForeverMemories/
 | Modules/Adventure, Journey, Memories | Calendar and recaps, the journey of important moments, "On this day" and anniversaries. |
 | Modules/Records, SessionRecap | Personal records, the play session recap. |
 | Modules/Progress, Trackers | Character states for achievements (money, reputations, professions…). Only confirmed values; the past is never guessed. |
-| Modules/AchievementCatalog, Achievements | The catalog of 106 achievements (character + account) and their checks. |
+| Modules/AchievementCatalog, Achievements | The catalog of 106 achievements (character + account) and their checks; step chains (`chain`) and cards for the page. |
 | Modules/Notifications | Three kinds of notifications (mini, discovery, legendary) and the chat line. Each kind has its own place and size (`ui.notify`). |
 | Modules/DataTools, ProjectInfo | Characters, export, backup, deletion; diagnostics without name, realm or GUID. |
 | Modules/ChangelogData | **Generated** by `tools/changelog.lua` from CHANGELOG.md and CHANGELOG.en.md. |

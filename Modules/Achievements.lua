@@ -78,6 +78,25 @@ for _, def in ipairs(Achievements.CATALOG.list) do
     Achievements.BY_ID[def.id] = def
 end
 
+-- Chains (v1.0.0-beta.18): chain id -> its steps in catalog order.
+-- An achievement without `chain` is a chain of one step (not listed here).
+Achievements.CHAINS = {}
+for _, def in ipairs(Achievements.CATALOG.list) do
+    if def.chain then
+        local steps = Achievements.CHAINS[def.chain]
+        if not steps then
+            steps = {}
+            Achievements.CHAINS[def.chain] = steps
+        end
+        steps[#steps + 1] = def
+    end
+end
+
+-- Steps of the chain of `def` (a lone achievement: only itself).
+function Achievements.Steps(def)
+    return def and def.chain and Achievements.CHAINS[def.chain] or { def }
+end
+
 -- listener(list of newly unlocked defs) - live unlocks only.
 Achievements.listeners = {}
 
@@ -480,6 +499,7 @@ local function checkScope(scope, owner, ctx)
                     cat = Achievements.CATALOG.version, cond = 1,
                 }
                 ns.Logger.Info("Achievement: " .. def.id .. (live and "" or " (already reached)"))
+                Achievements.MovePin(def, a.unlocked)
                 if live then
                     fresh[#fresh + 1] = def
                 end
@@ -574,6 +594,64 @@ function Achievements.Summary(scope, list)
 end
 
 ---------------------------------------------------------------------------
+-- Cards (v1.0.0-beta.18): the page shows one card per chain.
+--   { key, category, steps = { a, ... }, current = a, earned = n,
+--     complete = bool, last = a or nil }
+-- `current` is the first step not earned yet (the goal now); when every
+-- step is earned it is the last step. `last` is the highest earned step.
+-- `list` is the result of Achievements.Get (same order as the catalog).
+---------------------------------------------------------------------------
+function Achievements.Cards(list)
+    local cards, byChain = {}, {}
+    for _, a in ipairs(list or {}) do
+        local chain = a.def.chain
+        local card = chain and byChain[chain]
+        if not card then
+            card = { key = chain or a.def.id, category = a.def.category, steps = {}, earned = 0 }
+            cards[#cards + 1] = card
+            if chain then
+                byChain[chain] = card
+            end
+        end
+        card.steps[#card.steps + 1] = a
+        if a.done then
+            card.earned = card.earned + 1
+            card.last = a
+        elseif not card.current then
+            card.current = a
+        end
+    end
+    for _, card in ipairs(cards) do
+        card.complete = card.current == nil
+        card.current = card.current or card.steps[#card.steps]
+    end
+    return cards
+end
+
+-- Earned / total steps by category and by rarity, for the dashboard:
+--   { done, total, categories = { [cat] = { done, total } },
+--     rarities = { [rarity] = { done, total } } }
+function Achievements.Breakdown(list)
+    local result = { done = 0, total = 0, categories = {}, rarities = {} }
+    local function add(map, key, done)
+        local entry = map[key]
+        if not entry then
+            entry = { done = 0, total = 0 }
+            map[key] = entry
+        end
+        entry.total = entry.total + 1
+        if done then entry.done = entry.done + 1 end
+    end
+    for _, a in ipairs(list or {}) do
+        result.total = result.total + 1
+        if a.done then result.done = result.done + 1 end
+        add(result.categories, a.def.category, a.done)
+        add(result.rarities, a.def.rarity, a.done)
+    end
+    return result
+end
+
+---------------------------------------------------------------------------
 -- Goals on Home (v0.16.0): up to three pinned achievements, the rest of
 -- the three places go to the nearest ones (highest share of the target).
 -- Pins are kept in ns.db.ui.pins = { id, ... } for the whole account; a
@@ -619,6 +697,27 @@ function Achievements.TogglePin(id)
     return true
 end
 
+-- v1.0.0-beta.18: when a pinned step is earned, the pin moves to the next
+-- step of its chain that is not earned yet (`unlocked` = the owner's
+-- unlocked map). A lone achievement or the last step just drops its pin.
+function Achievements.MovePin(def, unlocked)
+    if not def.chain or not (ns.db and ns.db.ui) then
+        return
+    end
+    local list = pins()
+    for i, pinned in ipairs(list) do
+        if pinned == def.id then
+            for _, step in ipairs(Achievements.CHAINS[def.chain]) do
+                if not unlocked[step.id] and step.id ~= def.id and not Achievements.IsPinned(step.id) then
+                    list[i] = step.id
+                    return
+                end
+            end
+            return
+        end
+    end
+end
+
 local function share(a)
     if type(a.value) == "number" and type(a.target) == "number" and a.target > 0 then
         return a.value / a.target
@@ -630,11 +729,15 @@ end
 -- Pins of earned achievements drop out by themselves (never shown as goals).
 function Achievements.Goals(n)
     n = n or Achievements.MAX_PINS
+    -- v1.0.0-beta.18: only the current step of a chain is a goal (never
+    -- "Photographer 37/100" and "Memory Keeper 37/500" side by side).
     local byId, all = {}, {}
     for _, scope in ipairs({ "character", "account" }) do
-        for _, a in ipairs(Achievements.Get(scope)) do
-            byId[a.def.id] = a
-            all[#all + 1] = a
+        for _, card in ipairs(Achievements.Cards(Achievements.Get(scope))) do
+            for _, a in ipairs(card.steps) do
+                byId[a.def.id] = a
+            end
+            all[#all + 1] = card.current
         end
     end
     local goals, used = {}, {}
@@ -643,11 +746,14 @@ function Achievements.Goals(n)
         if Achievements.CanPin(a) and #goals < n and not used[id] then
             goals[#goals + 1] = { achievement = a, pinned = true }
             used[id] = true
+            if a.def.chain then
+                used[a.def.chain] = true -- one goal per chain
+            end
         end
     end
     local nearest = {}
     for _, a in ipairs(all) do
-        if not used[a.def.id] and Achievements.CanPin(a) and a.state == "progress" and share(a) then
+        if not used[a.def.id] and not (a.def.chain and used[a.def.chain]) and Achievements.CanPin(a) and a.state == "progress" and share(a) then
             nearest[#nearest + 1] = a
         end
     end

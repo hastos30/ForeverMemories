@@ -6,6 +6,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 Both files (this one and CHANGELOG.md) feed the in-game Changelog page: `lua5.1 tools/changelog.lua`.
 Only changes of the add-on itself go into the game; notes about tests, documentation and the build go under "### Development", which the game does not show.
 
+## [1.0.0-beta.18] — 2026-11-25 — Achievement chains and a progress dashboard (not checked in the client)
+
+### Added
+- Achievements: a dashboard above the list shows how many are earned in total, by rarity (common, rare, epic, legendary) and in each category. Clicking a category scrolls the list to it.
+- After a new achievement of a chain, the chat names the next step: "Achievement earned: Photographer. Next: Memory Keeper (500)".
+
+### Changed
+- Achievements with the same condition and a growing target are joined into chains, for example "First Memory → Photographer → Memory Keeper → Master Photographer → Archivist of Azeroth". The list has 54 cards instead of 106 rows.
+- A chain card shows the current goal (the first step not earned yet) and a dot for each step, earned ones in gold. Clicking the card unfolds every step with its target, progress and date.
+- "Completed" shows the highest earned step of each chain; "In progress" shows the nearest goals first.
+- A step pinned to Home moves to the next step of its chain once earned. One chain no longer takes two places among the goals on Home.
+- Earned achievements and the "X / Y earned" counter stay the same: every step still counts as an achievement of its own.
+
+### Development
+- `chain` field in `Modules/AchievementCatalog.lua` (24 chains, 76 steps); `Achievements.CHAINS`, `Steps`, `Cards`, `Breakdown`, `MovePin`. Saved data is unchanged, no migration.
+- History / Achievements: new row kinds `achDash` and `achStep`, a shared `spacer`.
+- 6 new tests (118 in total): chain catalog, cards, moving pins, one goal per chain, unfolding and the dashboard in both languages, the next step in chat.
+
 ## [1.0.0-beta.17] — 2026-11-25 — Total playtime on the All characters page (not checked in the client)
 
 ### Fixed

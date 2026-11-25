@@ -468,4 +468,12 @@ ns.locales.enUS = {
     ACH_SUMMARY_FULL = "%d / %d earned  ·  %d / %d available",
     HOME_WEEK = "This week", HOME_WEEK_DAYS = "days played: %d", HOME_WEEK_NEW = "%d new",
     TIP_HOME_WEEK = "From Monday to today: screenshots, steps, locations and active play of this character. Click to open History / Overview.",
+    -- v1.0.0-beta.18: achievement chains and the dashboard.
+    ACH_NEXT_STEP = ". Next: %s (%s)",
+    ACH_STEP = "Step %d of %d", ACH_STEPS_ALL = "All %d steps",
+    ACH_STEP_NOW = "Current goal", ACH_STEP_LATER = "Later",
+    TIP_ACH_CHAIN = "Click to show or hide all steps of this chain.",
+    ACH_DASH_TITLE = "Achievement progress", ACH_DASH_BY_CATEGORY = "By category", ACH_DASH_BY_RARITY = "By rarity",
+    TIP_ACH_DASH_CATEGORY = "Click to scroll to this category.",
+    ACH_RARITIES_COMMON = "Common", ACH_RARITIES_RARE = "Rare", ACH_RARITIES_EPIC = "Epic", ACH_RARITIES_LEGENDARY = "Legendary",
 }

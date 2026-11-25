@@ -2,7 +2,7 @@
 
 **English** · [Русский](PROGRESS.md)
 
-Current version: **1.0.0-beta.17** (2026-11-25). Built, tests 54/54 and 112/112, checked in the
+Current version: **1.0.0-beta.18** (2026-11-25). Built, tests 54/54 and 118/118, checked in the
 Forever client from Viktor's screenshots. The full history of every version is in
 [CHANGELOG.en.md](CHANGELOG.en.md).
 
@@ -23,8 +23,14 @@ Forever client from Viktor's screenshots. The full history of every version is i
   the fix is checked in the game.
 - beta.17: All characters shows the same time as the character cards (/played), the total is
   their sum; without a saved /played the time is marked "(addon)".
+- beta.18: Viktor's idea: "ladder" achievements are joined into 24 chains (54 cards instead of 106
+  rows), a card unfolds on click and shows every step; a progress dashboard by category and
+  rarity; a pin moves to the next step. Saved data did not change.
 
 ## Check in Forever
+- Achievements (beta.18): the dashboard fits and does not overlap the list; a category click
+  scrolls; a chain card unfolds and folds; the step dots show next to the title; "Completed" and
+  "In progress"; "Next: …" in chat after a new achievement.
 - All characters (beta.17): the time in the rows matches the character cards, "(addon)" where
   there is no /played; the note at the bottom fits.
 - Mini notification (beta.12): the dark background does not stick out of the frame, no gaps
