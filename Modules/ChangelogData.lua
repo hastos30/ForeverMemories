@@ -4,6 +4,16 @@ local _, ns = ...
 
 ns.CHANGELOG = {
     {
+        version = "1.0.0",
+        date = "2026-11-26",
+        title = "Первый выпуск на CurseForge",
+        sections = {
+            { kind = "improved", items = {
+                "Версия 1.0.0: первый выпуск аддона на CurseForge. Возможности те же, что в 1.0.0-beta.18; сохранённые данные не меняются.",
+            } },
+        },
+    },
+    {
         version = "1.0.0-beta.18",
         date = "2026-11-25",
         title = "Цепочки достижений и дашборд прогресса",
@@ -560,6 +570,16 @@ ns.CHANGELOG = {
     },
 }
 ns.CHANGELOG_EN = {
+    {
+        version = "1.0.0",
+        date = "2026-11-26",
+        title = "First release on CurseForge",
+        sections = {
+            { kind = "improved", items = {
+                "Version 1.0.0: the first release of the add-on on CurseForge. Features are the same as in 1.0.0-beta.18; saved data does not change.",
+            } },
+        },
+    },
     {
         version = "1.0.0-beta.18",
         date = "2026-11-25",

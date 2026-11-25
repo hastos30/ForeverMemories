@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 Both files (this one and CHANGELOG.md) feed the in-game Changelog page: `lua5.1 tools/changelog.lua`.
 Only changes of the add-on itself go into the game; notes about tests, documentation and the build go under "### Development", which the game does not show.
 
+## [1.0.0] — 2026-11-26 — First release on CurseForge (not fully checked in the client)
+
+### Changed
+- Version 1.0.0: the first release of the add-on on CurseForge. Features are the same as in 1.0.0-beta.18; saved data does not change.
+
+### Development
+- Version number without "-beta" in the TOC, Core/Init.lua and README. The in-client checklist is not fully done, the "discovery" and "legendary" notification borders are still temporary; fixes go to 1.0.x.
+- `releases/` folder (not in git): `tools/release.sh` puts the zip and the changelog of the version for the CurseForge form there. Release steps: docs/CURSEFORGE.md.
+
 ## [1.0.0-beta.18] — 2026-11-25 — Achievement chains and a progress dashboard (not checked in the client)
 
 ### Added
@@ -24,6 +33,7 @@ Only changes of the add-on itself go into the game; notes about tests, documenta
 - History / Achievements: new row kinds `achDash` and `achStep`, a shared `spacer`.
 - 6 new tests (118 in total): chain catalog, cards, moving pins, one goal per chain, unfolding and the dashboard in both languages, the next step in chat.
 - README and docs/ARCHITECTURE: version 1.0.0-beta.18, 106 achievements in 54 cards (24 chains).
+- docs/CURSEFORGE.md: texts and upload settings for the CurseForge project page.
 
 ## [1.0.0-beta.17] — 2026-11-25 — Total playtime on the All characters page (not checked in the client)
 
